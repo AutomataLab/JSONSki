@@ -1,0 +1,375 @@
+#include <string.h>
+#include <bitset>
+using namespace std;
+
+#define MAX_STATES 50
+#define MAX_STACK_DEPTH 50
+#define MAX_TRANS_STRING 10
+
+#define OBJECT 1
+#define ARRAY 2
+#define NONE 10
+#define KEY_OBJECT 3
+#define KEY_ARRAY 4
+#define KEY 5
+#define OUTPUT_CANDIDATE 6
+#define GENERAL_OUTPUT 7
+#define INVALID -1
+#define UNMATCHED_STATE 0
+#define PRIMITIVE 8
+#define ANY 9
+
+typedef struct TransStrInfo {
+    char* key;
+    int key_len;
+    int exp_type_in_obj;
+    int exp_type_in_arr;
+    int next_state;
+} TransStrInfo;
+
+typedef struct StateTransEle {
+    TransStrInfo t_str_info[MAX_TRANS_STRING];
+    int num_trans_str;
+    int key_idx[MAX_TRANS_STRING];
+    int num_matched_keys;
+    int num_keys = 0; 
+    bool matched_state;
+    int start_idx;
+    int end_idx;
+    bool has_index_constraint;
+} StateTransEle;
+  
+typedef struct DFA {
+    StateTransEle trans_ele[MAX_STATES];
+} DFA;
+
+typedef struct Stack {
+    int stack[MAX_STACK_DEPTH];
+    int arr_counter_stack[MAX_STACK_DEPTH];
+    int match_counter_stack[MAX_STACK_DEPTH];
+    int num_stack_ele;
+} Stack;
+
+class QueryAutomaton {
+  public:
+    QueryAutomaton() {
+        mStack.num_stack_ele = 0;
+        mCurState = 1;
+    }
+
+    void init() {
+        mStack.num_stack_ele = 0;
+        mCurState = 1;
+        mArrCounter = -1;
+        mLastMatchIdx = -1; 
+        for (int i = 0; i < MAX_STATES; ++i) {
+            mDfa.trans_ele[i].num_trans_str = 0;
+            mDfa.trans_ele[i].num_keys = 0; 
+        }
+    }
+
+    void reset() {
+        mStack.num_stack_ele = 0;
+        mCurState = 1;
+        mArrCounter = -1;
+        mLastMatchIdx = -1;
+    }
+
+    void addStateTransInfo(int cur_state, bool is_final_state, int exp_type_in_obj, int exp_type_in_arr, char* exp_key, int next_state) {
+        int cur_idx = cur_state - 1;
+        int next_idx = next_state - 1;
+        TransStrInfo t_str_info;
+        t_str_info.key = exp_key;
+        if (exp_key != NULL)
+            t_str_info.key_len = strlen(exp_key);
+        else t_str_info.key_len = 0;
+        t_str_info.exp_type_in_obj = exp_type_in_obj; 
+        t_str_info.exp_type_in_arr = exp_type_in_arr;
+        t_str_info.next_state = next_state;
+        int num_trans_str = mDfa.trans_ele[cur_idx].num_trans_str;
+        mDfa.trans_ele[cur_idx].t_str_info[num_trans_str++] = t_str_info;
+        mDfa.trans_ele[cur_idx].num_trans_str = num_trans_str;
+        // mDfa.trans_ele[start_idx].next_state = next_state;
+        mDfa.trans_ele[cur_idx].matched_state = is_final_state;
+        mDfa.trans_ele[cur_idx].has_index_constraint = false;
+    }
+
+    /*void addTransEle(int start_state, char* key, int type, int next_state, bool matched_state, int type1 = 1) {
+        int start_idx = start_state - 1;
+        int next_idx = next_state - 1;
+        TransStrInfo t_str_info;
+        t_str_info.key = key;
+        t_str_info.key_len = strlen(key);
+        t_str_info.type = type;
+        t_str_info.obj_type = type1;
+        t_str_info.next_state = next_state;
+        int num_trans_str = mDfa.trans_ele[start_idx].num_trans_str;
+        mDfa.trans_ele[start_idx].t_str_info[num_trans_str++] = t_str_info;
+        mDfa.trans_ele[start_idx].num_trans_str = num_trans_str;
+        // mDfa.trans_ele[start_idx].next_state = next_state;
+        mDfa.trans_ele[start_idx].matched_state = matched_state;
+        mDfa.trans_ele[start_idx].has_index_constraint = false;
+        // added
+        ///if (strcmp(key, "") != 0) {
+        if (type1 == PRIMITIVE) {
+            int num_keys = mDfa.trans_ele[start_idx].num_keys + 1;
+            mDfa.trans_ele[start_idx].key_idx[num_keys - 1] = num_trans_str - 1;
+            mDfa.trans_ele[start_idx].num_keys = num_keys; 
+        }
+    }*/
+
+    void addIndexConstraints(int state, int start_idx, int end_idx) {
+        if (state >= 1) {
+            mDfa.trans_ele[state - 1].has_index_constraint = true;
+            mDfa.trans_ele[state - 1].start_idx = start_idx;
+            mDfa.trans_ele[state - 1].end_idx = end_idx;
+        }
+    }
+
+    bool hasIndexConstraints() {
+        if (mCurState == 0) return false;
+        // cout<<"check index constraints "<<mDfa.trans_ele[mCurState - 1].has_index_constraint<<" state "<<mCurState<<endl;
+        return mDfa.trans_ele[mCurState - 1].has_index_constraint;
+    }
+
+    void addArrayCounter() {
+        ++mArrCounter;
+        // ++mDfa.trans_ele[mCurState - 1].counter; 
+    }
+
+    bool checkArrayCounter() {
+        if (mCurState == 0) return false;
+        int start_idx = mDfa.trans_ele[mCurState - 1].start_idx;
+        int end_idx = mDfa.trans_ele[mCurState - 1].end_idx;
+        if (mArrCounter >= start_idx && mArrCounter < end_idx) {
+            //cout<<"counter correct "<<mArrCounter<<" state "<<mCurState<<" start "<<start_idx<<" end "<<end_idx<<endl;
+            return true;
+        }
+        ///if (mCurState != 5) cout<<"counter error "<<mArrCounter<<" state "<<mCurState<<" start "<<start_idx<<" end "<<end_idx<<endl;
+        return false;
+    }
+
+    __attribute__((always_inline)) int getExpectedValueTypeObj() {
+        if (mCurState == 0) return false;
+        int cur_idx = mCurState - 1;
+        int i = 0;
+        return mDfa.trans_ele[cur_idx].t_str_info[i].exp_type_in_obj;
+        /// int num_trans_str = mDfa.trans_ele[cur_idx].num_trans_str;
+
+        /*int num_keys = mDfa.trans_ele[cur_idx].num_keys;
+       ///// if (mCurState == 2) cout<<"num keys "<<num_keys<<" "<< mStack.match_counter_stack[mStack.num_stack_ele - 1]<<" "<<num_trans_str<<endl;
+        if (mDfa.trans_ele[cur_idx].num_keys > 0 && mDfa.trans_ele[cur_idx].num_keys <= mStack.match_counter_stack[mStack.num_stack_ele - 1]) { 
+            i = 1;
+            ///cout<<"get type from next one "<<mDfa.trans_ele[cur_idx].t_str_info[i].obj_type<<" "<<mCurState<<" "<<mStack.match_counter_stack[mStack.num_stack_ele - 1]<<endl;
+        }*/
+        /*int type = mDfa.trans_ele[cur_idx].t_str_info[i].obj_type;
+        return type;*/
+    }
+
+    __attribute__((always_inline)) int getExpectedValueType() {
+        if (mCurState == 0) return false;
+        int cur_idx = mCurState - 1;
+        int i = 0;
+        return mDfa.trans_ele[cur_idx].t_str_info[i].exp_type_in_arr;
+        /*int type = mDfa.trans_ele[cur_idx].t_str_info[i].type;
+        return type;*/
+    } 
+
+    /*__attribute__((always_inline)) bool hasOtherTypesExceptKey() {
+        if (mCurState == 0) return false;
+        int cur_idx = mCurState - 1;
+        if (mDfa.trans_ele[cur_idx].num_trans_str > mDfa.trans_ele[cur_idx].num_keys) {
+            return true;
+        }
+        return false;
+    } 
+
+    __attribute__((always_inline)) bool hasMatchedKey() {
+        if (mCurState == 0) return false;
+        int cur_idx = mCurState - 1;
+        /// if (mDfa.trans_ele[cur_idx].num_keys > 0) {
+        /*if (mCurState == 2 || mCurState == 3) {
+           cout<<" 1 "<<mStack.match_counter_stack[mStack.num_stack_ele - 1]<<" 2: "<<mDfa.trans_ele[cur_idx].num_keys<<endl; 
+        }*/
+        /*if (mDfa.trans_ele[cur_idx].num_keys > 0 && mStack.match_counter_stack[mStack.num_stack_ele - 1] == mDfa.trans_ele[cur_idx].num_keys) {
+            ///if (mCurState == 2 || mCurState == 3) cout<<" 1 "<<mDfa.trans_ele[cur_idx].num_trans_str<<endl;
+            return false;
+        }*/
+        /*if (mDfa.trans_ele[cur_idx].num_keys > mStack.match_counter_stack[mStack.num_stack_ele - 1]) {
+            return true;
+        }
+        return false;
+    }*/
+    
+    /*__attribute__((always_inline)) bool hasMatchedKeyType(int type) {
+        if (mCurState == 0) return false;
+
+//        cout<<"check type "<<type<<" state "<<mCurState<<endl;
+        int cur_idx = mCurState - 1;
+
+        // StateTransEle trans_ele = mDfa.trans_ele[cur_idx];
+        /*if (mDfa.trans_ele[cur_idx].num_keys > 0) {
+            return true;
+        }
+        return false;*/
+        /*int num_trans_str = mDfa.trans_ele[cur_idx].num_trans_str;
+        int i = 0;
+        int next_state = 0;
+        while (i < num_trans_str) {
+            if (mDfa.trans_ele[cur_idx].t_str_info[i].type == type) {
+    //            cout<<"matched type "<<type<<endl;
+                return true;
+            }
+            ++i;
+        }
+        return false; 
+    }*/
+
+    /*__attribute__((always_inline)) bool hasMatchedKeyLen(int key_len) {
+        if (mCurState == 0) return false;
+        int cur_idx = mCurState - 1;
+        //StateTransEle trans_ele = mDfa.trans_ele[cur_idx];
+        int num_trans_str = mDfa.trans_ele[cur_idx].num_trans_str;
+        int i = 0;
+        int next_state = 0;
+        while (i < num_trans_str) {
+            if (mDfa.trans_ele[cur_idx].t_str_info[i].key_len == key_len) {
+                return true;
+            }
+            ++i;
+        }
+        return false;
+    }
+
+    __attribute__((always_inline)) bool hasFoundFields() {
+        if (mCurState == 0) return false; 
+        int cur_idx = mCurState - 1;
+        int num_trans_str = mDfa.trans_ele[cur_idx].num_trans_str;
+
+        int num_keys = mDfa.trans_ele[cur_idx].num_keys;
+
+       ///  if (mCurState == 2) cout<<"num keys "<<num_keys<<" "<< mStack.match_counter_stack[mStack.num_stack_ele - 1]<<" "<<num_trans_str<<endl;
+
+        if (num_trans_str == mStack.match_counter_stack[mStack.num_stack_ele - 1])
+            return true;
+        return false;
+    }*/
+
+    __attribute__((always_inline)) int getNextState(char *key, int key_len, int type) {
+        if (mCurState == 0) return 0;
+       // cout<<"check next state "<<key<<" "<<key_len<<" "<<type<<endl;
+        int cur_idx = mCurState - 1;
+        //StateTransEle trans_ele = mDfa.trans_ele[cur_idx];
+        int num_trans_str = mDfa.trans_ele[cur_idx].num_trans_str;
+        int i = 0;
+        int next_state = 0;
+        //if (num_trans_str == mStack.match_counter_stack[mStack.num_stack_ele - 1])
+        //    return 0;
+        while (i < num_trans_str) {
+            if (mDfa.trans_ele[cur_idx].t_str_info[i].key_len == key_len 
+                && memcmp(mDfa.trans_ele[cur_idx].t_str_info[i].key, key, key_len) == 0) {
+                next_state = mDfa.trans_ele[cur_idx].t_str_info[i].next_state;
+                ++mStack.match_counter_stack[mStack.num_stack_ele - 1];
+                //if (next_state > 0) ++mMatchedCnt;
+                return next_state;
+            }
+            ++i;
+        }
+        return next_state;
+    }
+
+    bool hasNextTransTkn(int trans_tkn_idx) {
+        int cur_idx = mCurState - 1;
+        if (mCurState == UNMATCHED_STATE) return false;
+        int num_trans_str = mDfa.trans_ele[cur_idx].num_trans_str;
+        if (trans_tkn_idx < num_trans_str) return true;
+        return false;
+    }
+
+    __attribute__((always_inline)) int getNextStateNoKey(int type) {
+        if (mCurState == 0) return 0;
+  //      cout<<"check next state no key "<<type<<endl;
+        int cur_idx = mCurState - 1;
+        // StateTransEle trans_ele = mDfa.trans_ele[cur_idx];
+        int num_trans_str = mDfa.trans_ele[cur_idx].num_trans_str;
+        int i = 0;
+        int next_state = 0;//mDfa.trans_ele[cur_idx].t_str_info[0].next_state;;
+        while (i < num_trans_str) {
+            if (mDfa.trans_ele[cur_idx].t_str_info[i].key_len == 0) {
+            next_state = mDfa.trans_ele[cur_idx].t_str_info[i].next_state;
+            return next_state;
+            }
+            ++i;
+        }
+        return next_state;
+    }
+
+    void setCurState(int cur_state) {
+        mCurState = cur_state;
+    }
+
+    int getType(int state) {
+        if (state > 0 && mDfa.trans_ele[state - 1].matched_state == true)
+            return OUTPUT_CANDIDATE;
+        return GENERAL_OUTPUT;
+    }
+
+    __attribute__((always_inline)) void pushStack(int next_state) {
+        //cout<<"push"<<endl;
+      //  if (mCurState != 0) cout<<mCurState<<" "<<next_state<<endl;
+        //if (next_state == 4) cout<<"4"<<endl;
+        if (mStack.num_stack_ele < MAX_STACK_DEPTH) {
+            mStack.stack[mStack.num_stack_ele] = mCurState;
+            //if (next_state == UNMATCHED_STATE)
+            mStack.match_counter_stack[mStack.num_stack_ele] = 0; 
+            //else mStack.match_counter_stack[mStack.num_stack_ele] = 1;
+            mStack.arr_counter_stack[mStack.num_stack_ele++] = mArrCounter;
+///            if (mCurState == 3) 
+         //   cout<<"push state "<<mCurState<<" "<<mStack.num_stack_ele<<" next state "<<next_state<<endl;
+            mCurState = next_state;
+            mArrCounter = -1;
+            mLastMatchIdx = -1;
+        }
+    }
+
+    __attribute__((always_inline)) int popStack() {
+        //cout<<"pop "<<mStack.num_stack_ele<<endl;
+//        cout<<"pop stack "<<mCurState<<" "<<mStack.stack[mStack.num_stack_ele]<<endl;
+        if (mStack.num_stack_ele > 0) {
+            mCurState = mStack.stack[--mStack.num_stack_ele];
+            mArrCounter = mStack.arr_counter_stack[mStack.num_stack_ele];
+            mLastMatchIdx = -1;
+           // if (mCurState == 9) cout<<"pop state "<<mCurState<<endl;
+            return mCurState;
+        }
+        cout<<"pop out exception "<<endl;
+        return INVALID;
+    }
+
+    inline int getStackSize() {
+        return mStack.num_stack_ele;
+    }
+
+    ~QueryAutomaton() {
+        /*if (mMatchedStateInfo) {
+            delete mMatchedStateInfo;
+        }
+        if (mMatchedStates) {
+            delete mMatchedStates;
+        }*/
+    } 
+   
+  public:
+    DFA mDfa;
+    int mCurState;
+    int mArrCounter = -1;
+    Stack mStack;
+    int mLastMatchIdx;
+    long mOutputSize = 0;
+    long mCnt = 0;
+    long mMatchedCnt = 0;
+    int mTempState = 0;
+    int mNumMatchedStates = 0;
+    long mCostNoFilter5 = 0;
+    long mCost = 0;
+};

@@ -1,0 +1,18 @@
+#ifndef SERIALBITMAPCONSTRUCTOR_H
+#define SERIALBITMAPCONSTRUCTOR_H
+
+#include "SerialBitmap.h"
+#include "Records.h"
+
+class SerialBitmapConstructor {
+  public:
+    static SerialBitmap* construct(char* record, int depth = MAX_LEVEL, bool support_array = true);
+    static SerialBitmap* constructMison(char* record, int depth = MAX_LEVEL, int num_step = 5, bool support_array = true);
+    static SerialBitmap* constructMisonPlus(char* record, int depth = MAX_LEVEL, int num_step = 5, bool support_array = true);
+    static SerialBitmap* constructSbSPison(char* record, int depth = MAX_LEVEL, int num_step = 5, bool support_array = true);
+    static SerialBitmap* construct(Records* records, long rec_id, int depth = MAX_LEVEL, bool support_array = true);
+    static SerialBitmap* constructMison(Records* records, long rec_id, int num_step = 5, int depth = MAX_LEVEL, bool support_array = true);
+    static SerialBitmap* constructMisonPlus(Records* records, long rec_id, int num_step = 5, int depth = MAX_LEVEL, bool support_array = true);
+    static SerialBitmap* constructSbSPison(Records* records, long rec_id, int num_step = 5, int depth = MAX_LEVEL, bool support_array = true);
+};
+#endif

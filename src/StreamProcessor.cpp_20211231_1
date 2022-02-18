@@ -1,0 +1,2808 @@
+#include "StreamProcessor.h"
+#include <immintrin.h>
+
+#include <emmintrin.h>
+#include <string.h>
+
+#include <sys/time.h>
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+#include <pthread.h>
+#include <malloc.h>
+#include <sys/time.h>
+#include <sys/file.h>
+#include <unistd.h>
+#include <sched.h>
+#include <unordered_map>
+
+using namespace std;
+
+StreamProcessor::StreamProcessor(QueryAutomaton& qa) {
+    this->qa = qa;
+    this->mOutput.clear();
+    this->mOutputSize = 0;
+    this->mText = new char[MAX_TEXT_LENGTH];
+    init(); 
+}
+
+StreamProcessor::StreamProcessor(char* record, long record_length, QueryAutomaton& qa) {
+    this->setRecord(record, record_length);
+    this->qa = qa;
+    this->mOutput.clear();
+    this->mOutputSize = 0;
+    this->mText = new char[MAX_TEXT_LENGTH];
+    init();
+}
+
+void StreamProcessor::init() {
+    structural_table =
+        _mm256_setr_epi8(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '{', 0, '}', 0, 0,
+                         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '{', 0, '}', 0, 0);
+    struct_mask = _mm256_set1_epi8(0x20);
+    // vectors for structural characters
+    v_quote = _mm256_set1_epi8(0x22);
+    v_colon = _mm256_set1_epi8(0x3a);
+    v_escape = _mm256_set1_epi8(0x5c);
+    v_lbrace = _mm256_set1_epi8(0x7b);
+    v_rbrace = _mm256_set1_epi8(0x7d);
+    v_comma = _mm256_set1_epi8(0x2c);
+    v_lbracket = _mm256_set1_epi8(0x5b);
+    v_rbracket = _mm256_set1_epi8(0x5d);
+    // some global variables among internal functions
+    top_word = -1;
+    prev_iter_ends_odd_backslash = 0ULL;
+    prev_iter_inside_quote = 0ULL;
+    /// even_bits = 0x5555555555555555ULL;
+    /// odd_bits = ~even_bits;
+    start_id = 0;
+    cb_mask = 0, colon_mask = 0, comma_mask = 0; mask = 0;
+    colonbit = 0; quotebit = 0; commabit = 0; bracketbit = 0;
+    cur_word = false;
+    top_word = -1;
+    cur_pos = 0; 
+}
+
+StreamProcessor::~StreamProcessor()
+{
+    if (mText) {
+        free(mText);
+        mText = NULL;
+    }
+   /// cout<<"memory released "<<endl;
+}
+
+void StreamProcessor::setRecord(char* record, long length) {
+    this->mRecord = record;
+    this->mRecordLength = length;
+    this->mNumTmpWords = length / 32;
+    this->mNumWords = length / 64; 
+}
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", ARRAY, 2, false);
+    qa.addTransEle(2, "", OBJECT, 3, false);
+    qa.addTransEle(3, "routes", KEY_ARRAY, 4, false);
+    qa.addTransEle(4, "", OBJECT, 5, false);
+    qa.addTransEle(5, "bounds", KEY_OBJECT, 16, false);
+    qa.addTransEle(16, "northeast", KEY_OBJECT, 27, false);
+    //qa.addTransEle(16, "southwest", KEY_OBJECT, 32, false);
+    qa.addTransEle(27, "lat", KEY, 28, false);
+    qa.addTransEle(28, "", OUTPUT_CANDIDATE, 28, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", ARRAY, 2, false);
+    qa.addTransEle(2, "", OBJECT, 3, false);
+    qa.addTransEle(3, "entities", KEY_OBJECT, 4, false);
+    qa.addTransEle(3, "fake1", KEY, 5, false);
+    qa.addTransEle(3, "fake2", KEY, 6, false);
+    qa.addTransEle(3, "fake3", KEY, 7, false);
+    qa.addTransEle(3, "fake4", KEY, 8, false);
+    qa.addTransEle(3, "fake5", KEY, 9, false);
+    qa.addTransEle(3, "id", KEY, 10, false);
+    qa.addTransEle(3, "id_str", KEY, 11, false);
+    qa.addTransEle(3, "favourites_count", KEY, 12, false);
+    qa.addTransEle(4, "urls", KEY_ARRAY, 5, false);
+    qa.addTransEle(5, "", OBJECT, 6, false);
+    qa.addTransEle(6, "url", KEY, 7, false);
+    qa.addTransEle(7, "", OUTPUT_CANDIDATE, 7, true);
+    qa.addTransEle(10, "", OUTPUT_CANDIDATE, 10, true);
+    qa.addTransEle(11, "", OUTPUT_CANDIDATE, 11, true);
+    qa.addTransEle(12, "", OUTPUT_CANDIDATE, 12, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "products", KEY_ARRAY, 3, false);
+    qa.addTransEle(3, "", OBJECT, 4, false);
+    qa.addTransEle(4, "fcategoryPath", KEY_ARRAY, 5, false);
+    qa.addTransEle(4, "orderable", KEY, 9, false);
+    qa.addTransEle(4, "fdepartmentId", KEY, 10, false);
+    qa.addTransEle(4, "furl", KEY, 11, false);
+    qa.addTransEle(4, "fsecondaryMarket", KEY, 12, false);
+    qa.addTransEle(4, "fshortDescription", KEY, 13, false);
+    // qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(5, "", OBJECT, 6, false);
+    //qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(6, "id", KEY, 7, false);
+    qa.addTransEle(6, "name", KEY, 8, false);
+    qa.addTransEle(6, "same", KEY, 15, false);
+    qa.addTransEle(6, "same1", KEY, 16, false);
+    // qa.addTransEle(6, "same2", KEY, 17, false)
+    qa.addTransEle(7, "", OUTPUT_CANDIDATE, 7, true);
+    qa.addTransEle(8, "", OUTPUT_CANDIDATE, 8, true);
+    qa.addTransEle(9, "", OUTPUT_CANDIDATE, 9, true);
+    qa.addTransEle(10, "", OUTPUT_CANDIDATE, 10, true);
+    qa.addTransEle(11, "", OUTPUT_CANDIDATE, 11, true);
+    qa.addTransEle(12, "", OUTPUT_CANDIDATE, 12, true);
+    qa.addTransEle(13, "", OUTPUT_CANDIDATE, 13, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", ARRAY, 2, false);
+    qa.addTransEle(2, "", OBJECT, 3, false);
+    qa.addTransEle(3, "routes", KEY_ARRAY, 4, false);
+    qa.addTransEle(4, "", OBJECT, 5, false);
+    qa.addTransEle(5, "fake1", KEY, 15, false);
+    qa.addTransEle(5, "bounds", KEY_OBJECT, 16, false);
+    qa.addTransEle(5, "fake3", KEY_ARRAY, 17, false);
+    qa.addTransEle(5, "fake4", KEY_ARRAY, 18, false);
+    qa.addTransEle(5, "fake5", KEY_ARRAY, 19, false);
+    qa.addTransEle(5, "fake6", KEY_ARRAY, 20, false);
+
+    qa.addTransEle(5, "legs", KEY_ARRAY, 6, false);
+    qa.addTransEle(6, "", OBJECT, 7, false);
+    qa.addTransEle(7, "distance", KEY_OBJECT, 29, false);
+    qa.addTransEle(7, "steps", KEY_ARRAY, 8, false);
+    qa.addTransEle(8, "", OBJECT, 9, false);
+    qa.addTransEle(9, "distance", KEY_OBJECT, 10, false);
+    qa.addTransEle(9, "fake1", KEY, 21, false);
+    qa.addTransEle(9, "fake2", KEY_ARRAY, 22, false);
+    qa.addTransEle(9, "fake3", KEY, 23, false);
+    qa.addTransEle(9, "fake1", KEY, 24, false);
+    qa.addTransEle(9, "fake2", KEY_ARRAY, 25, false);
+    qa.addTransEle(9, "fake3", KEY, 26, false);
+
+    qa.addTransEle(10, "text", KEY, 11, false);
+    qa.addTransEle(10, "value", KEY, 12, false);
+    qa.addTransEle(11, "", OUTPUT_CANDIDATE, 11, true);
+    qa.addTransEle(12, "", OUTPUT_CANDIDATE, 12, true);
+    qa.addTransEle(16, "northeast", KEY_OBJECT, 27, false);
+    qa.addTransEle(16, "southwest", KEY_OBJECT, 32, false);
+    qa.addTransEle(27, "lat", KEY, 28, false);
+    qa.addTransEle(28, "", OUTPUT_CANDIDATE, 28, true);
+    qa.addTransEle(29, "distance", KEY_OBJECT, 30, false);
+    qa.addTransEle(30, "text", KEY, 31, false);
+    qa.addTransEle(31, "", OUTPUT_CANDIDATE, 31, true);
+    qa.addTransEle(32, "lng", KEY, 33, false);
+    qa.addTransEle(33, "", OUTPUT_CANDIDATE, 33, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", ARRAY, 2, false);
+    qa.addTransEle(2, "", OBJECT, 3, false);
+    qa.addTransEle(3, "entities", KEY_OBJECT, 4, false);
+    qa.addTransEle(3, "id", KEY, 8, false);
+    qa.addTransEle(4, "urls", KEY_ARRAY, 5, false);
+    qa.addTransEle(5, "", OBJECT, 6, false);
+    qa.addTransEle(6, "indices", KEY_ARRAY, 7, false);
+    qa.addTransEle(7, "", OUTPUT_CANDIDATE, 7, true);
+    qa.addTransEle(8, "", OUTPUT_CANDIDATE, 8, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    //qa.addTransEle(1, "", ARRAY, 2, false);
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "entities", KEY_OBJECT, 3, false);
+    qa.addTransEle(2, "id", KEY, 7, false);
+    qa.addTransEle(3, "urls", KEY_ARRAY, 4, false);
+    qa.addTransEle(4, "", OBJECT, 5, false);
+    qa.addTransEle(5, "indices", KEY_ARRAY, 6, false);
+    qa.addTransEle(6, "", OUTPUT_CANDIDATE, 6, true);
+    qa.addTransEle(7, "", OUTPUT_CANDIDATE, 7, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    //qa.addTransEle(1, "", ARRAY, 2, false);
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    // qa.addTransEle(2, "entities", KEY_OBJECT, 3, false);
+    qa.addTransEle(2, "id", KEY, 6, false);
+    qa.addTransEle(2, "text", KEY, 7, false);
+    qa.addTransEle(3, "urls", KEY_ARRAY, 4, false);
+    qa.addTransEle(4, "", OBJECT, 5, false);
+    qa.addTransEle(5, "indices", KEY_ARRAY, 6, false);
+    qa.addTransEle(6, "", OUTPUT_CANDIDATE, 6, true);
+    qa.addTransEle(7, "", OUTPUT_CANDIDATE, 7, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", ARRAY, 2, false);
+    qa.addTransEle(2, "", OBJECT, 3, false);
+  //  qa.addTransEle(3, "id", KEY, 8, false);
+    qa.addTransEle(3, "favorite_count", KEY, 8, false);
+    qa.addTransEle(3, "entities", KEY_OBJECT, 4, false);
+  //  qa.addTransEle(3, "favorite_count", KEY, 8, false);
+    qa.addTransEle(4, "urls", KEY_ARRAY, 5, false);
+    qa.addTransEle(5, "", OBJECT, 6, false);
+    qa.addTransEle(6, "url", KEY, 7, false);
+    qa.addTransEle(7, "", OUTPUT_CANDIDATE, 7, true);
+    qa.addTransEle(8, "", OUTPUT_CANDIDATE, 8, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", ARRAY, 2, false);
+    qa.addTransEle(2, "", OBJECT, 3, false);
+  //  qa.addTransEle(3, "id", KEY, 8, false);
+    ///qa.addTransEle(3, "favorite_count", KEY, 8, false);
+    qa.addTransEle(3, "user", KEY_OBJECT, 4, false);
+  //  qa.addTransEle(3, "favorite_count", KEY, 8, false);
+    qa.addTransEle(4, "id", KEY, 5, false);
+    qa.addTransEle(4, "lang", KEY, 6, false);
+   // qa.addTransEle(6, "url", KEY, 7, false);
+    qa.addTransEle(5, "", OUTPUT_CANDIDATE, 5, true);
+    qa.addTransEle(6, "", OUTPUT_CANDIDATE, 6, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    //qa.addTransEle(1, "", ARRAY, 2, false);
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "entities", KEY_OBJECT, 3, false);
+    qa.addTransEle(2, "id", KEY, 7, false);
+    qa.addTransEle(3, "urls", KEY_ARRAY, 4, false);
+    qa.addTransEle(4, "", OBJECT, 5, false);
+    qa.addTransEle(5, "url", KEY, 6, false);
+    qa.addTransEle(6, "", OUTPUT_CANDIDATE, 6, true);
+    qa.addTransEle(7, "", OUTPUT_CANDIDATE, 7, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", ARRAY, 2, false);
+    qa.addTransEle(2, "", OBJECT, 3, false);
+    qa.addTransEle(3, "entities", KEY_OBJECT, 4, false);
+    qa.addTransEle(3, "user", KEY_OBJECT, 8, true);
+    qa.addTransEle(3, "user_mentions", KEY_ARRAY, 10, true);
+    qa.addTransEle(4, "urls", KEY_ARRAY, 5, false);
+    qa.addTransEle(5, "", OBJECT, 6, false);
+    qa.addTransEle(6, "url", KEY, 7, false);
+    qa.addTransEle(7, "", OUTPUT_CANDIDATE, 7, true);
+    qa.addTransEle(8, "id", KEY, 9, true);
+    qa.addTransEle(9, "", OUTPUT_CANDIDATE, 9, true);
+    qa.addTransEle(10, "", OBJECT, 11, false);
+    qa.addTransEle(11, "fake", KEY, 11, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "products", KEY_ARRAY, 3, false);
+    qa.addTransEle(3, "", OBJECT, 4, false);
+    qa.addTransEle(4, "validFrom", KEY, 5, false);
+//    qa.addBestSubkey(4, 0, "Fr"); 
+    // qa.addIndexConstraints(5, 1, 3);
+ //   qa.addTransEle(5, "", OBJECT, 6, false);
+ //   qa.addIndexConstraints(5, 1, 3);
+ //   qa.addTransEle(6, "id", KEY, 7, false);
+    qa.addTransEle(5, "", OUTPUT_CANDIDATE, 5, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "products", KEY_ARRAY, 3, false);
+    qa.addTransEle(3, "", OBJECT, 4, false);
+    qa.addTransEle(4, "affiliateUrl", KEY, 5, false);
+///    qa.addBestSubkey(4, 0, "Tota");
+    // qa.addIndexConstraints(5, 1, 3);
+ //   qa.addTransEle(5, "", OBJECT, 6, false);
+ //   qa.addIndexConstraints(5, 1, 3);
+ //   qa.addTransEle(6, "id", KEY, 7, false);
+    qa.addTransEle(5, "", OUTPUT_CANDIDATE, 5, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "products", KEY_ARRAY, 3, false);
+    qa.addTransEle(3, "", OBJECT, 4, false);
+    qa.addTransEle(4, "shortDescription", KEY, 5, false);
+///    qa.addBestSubkey(4, 0, "Tota");
+    // qa.addIndexConstraints(5, 1, 3);
+ //   qa.addTransEle(5, "", OBJECT, 6, false);
+ //   qa.addIndexConstraints(5, 1, 3);
+ //   qa.addTransEle(6, "id", KEY, 7, false);
+    qa.addTransEle(5, "", OUTPUT_CANDIDATE, 5, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "products", KEY_ARRAY, 3, false);
+    qa.addTransEle(3, "", OBJECT, 4, false);
+    qa.addTransEle(4, "monthlyRecurringChargeGrandTotal", KEY, 5, false);
+///    qa.addBestSubkey(4, 0, "Tota");
+    // qa.addIndexConstraints(5, 1, 3);
+ //   qa.addTransEle(5, "", OBJECT, 6, false);
+ //   qa.addIndexConstraints(5, 1, 3);
+ //   qa.addTransEle(6, "id", KEY, 7, false);
+    qa.addTransEle(5, "", OUTPUT_CANDIDATE, 5, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    //qa.addTransEle(1, "", OBJECT, 2, false);
+    //qa.addTransEle(2, "products", KEY_ARRAY, 3, false);
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "monthlyRecurringChargeGrandTotal", KEY, 3, false);
+///    qa.addBestSubkey(4, 0, "Tota");
+    // qa.addIndexConstraints(5, 1, 3);
+ //   qa.addTransEle(5, "", OBJECT, 6, false);
+ //   qa.addIndexConstraints(5, 1, 3);
+ //   qa.addTransEle(6, "id", KEY, 7, false);
+    qa.addTransEle(3, "", OUTPUT_CANDIDATE, 3, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    //qa.addTransEle(1, "", OBJECT, 2, false);
+    //qa.addTransEle(2, "products", KEY_ARRAY, 3, false);
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "shortDescription", KEY, 3, false);
+///    qa.addBestSubkey(4, 0, "Tota");
+    // qa.addIndexConstraints(5, 1, 3);
+ //   qa.addTransEle(5, "", OBJECT, 6, false);
+ //   qa.addIndexConstraints(5, 1, 3);
+ //   qa.addTransEle(6, "id", KEY, 7, false);
+    qa.addTransEle(3, "", OUTPUT_CANDIDATE, 3, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    //qa.addTransEle(1, "", OBJECT, 2, false);
+    //qa.addTransEle(2, "products", KEY_ARRAY, 3, false);
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "validFrom", KEY, 3, false);
+    // qa.addIndexConstraints(5, 1, 3);
+ //   qa.addTransEle(5, "", OBJECT, 6, false);
+ //   qa.addIndexConstraints(5, 1, 3);
+ //   qa.addTransEle(6, "id", KEY, 7, false);
+//   qa.addBestSubkey(2, 0, "From"); 
+/////     qa.initExpectedKeysInfo(2);
+    qa.addTransEle(3, "", OUTPUT_CANDIDATE, 3, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+ //   qa.addTransEle(1, "", OBJECT, 2, false);
+ //   qa.addTransEle(2, "products", KEY_ARRAY, 3, false);
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "monthlyRecurringChargeGrandTotal", KEY, 3, false);
+    qa.addBestSubkey(2, 0, "Tot");
+    // qa.addIndexConstraints(5, 1, 3);
+ //   qa.addTransEle(5, "", OBJECT, 6, false);
+ //   qa.addIndexConstraints(5, 1, 3);
+ //   qa.addTransEle(6, "id", KEY, 7, false);
+   ///  qa.initExpectedKeysInfo(2);
+    qa.addTransEle(3, "", OUTPUT_CANDIDATE, 3, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "products", KEY_ARRAY, 3, false);
+    qa.addTransEle(3, "", OBJECT, 4, false);
+    qa.addTransEle(4, "categoryPath", KEY_ARRAY, 5, false);
+    qa.addTransEle(4, "orderable", KEY, 9, false);
+    qa.addTransEle(4, "departmentId", KEY, 10, false);
+    qa.addTransEle(4, "url", KEY, 11, false);
+    qa.addTransEle(4, "secondaryMarket", KEY, 12, false);
+    qa.addTransEle(4, "shortDescription", KEY, 13, false);
+    // qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(5, "", OBJECT, 6, false);
+    //qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(6, "id", KEY, 7, false);
+    qa.addTransEle(6, "name", KEY, 8, false);
+    qa.addTransEle(7, "", OUTPUT_CANDIDATE, 7, true);
+    qa.addTransEle(8, "", OUTPUT_CANDIDATE, 8, true);
+    qa.addTransEle(9, "", OUTPUT_CANDIDATE, 9, true);
+    qa.addTransEle(10, "", OUTPUT_CANDIDATE, 10, true);
+    qa.addTransEle(11, "", OUTPUT_CANDIDATE, 11, true);
+    qa.addTransEle(12, "", OUTPUT_CANDIDATE, 12, true);
+    qa.addTransEle(13, "", OUTPUT_CANDIDATE, 13, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    //qa.addTransEle(1, "", OBJECT, 2, false);
+    //qa.addTransEle(2, "products", KEY_ARRAY, 3, false);
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "categoryPath", KEY_ARRAY, 3, false);
+    qa.addTransEle(2, "orderable", KEY, 7, false);
+    qa.addTransEle(2, "departmentId", KEY, 8, false);
+    qa.addTransEle(2, "url", KEY, 9, false);
+    qa.addTransEle(2, "secondaryMarket", KEY, 10, false);
+    qa.addTransEle(2, "shortDescription", KEY, 11, false);
+    // qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(3, "", OBJECT, 4, false);
+    //qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(4, "id", KEY, 5, false);
+    qa.addTransEle(4, "name", KEY, 6, false);
+    qa.addTransEle(5, "", OUTPUT_CANDIDATE, 5, true);
+    qa.addTransEle(6, "", OUTPUT_CANDIDATE, 6, true);
+    qa.addTransEle(7, "", OUTPUT_CANDIDATE, 7, true);
+    qa.addTransEle(8, "", OUTPUT_CANDIDATE, 8, true);
+    qa.addTransEle(9, "", OUTPUT_CANDIDATE, 9, true);
+    qa.addTransEle(10, "", OUTPUT_CANDIDATE, 10, true);
+    qa.addTransEle(11, "", OUTPUT_CANDIDATE, 11, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    //qa.addTransEle(1, "", OBJECT, 2, false);
+    ///qa.addTransEle(1, "items", OBJECT, 2, false, ARRAY);
+    ////qa.addTransEle(2, "", ARRAY, 3, false);
+    qa.addTransEle(1, "name", OBJECT, 4, false, PRIMITIVE);
+   /// qa.addTransEle(1, "bestMarketplacePrice", OBJECT, 2, false, OBJECT);
+  ///  qa.addIndexConstraints(3, 5000, 10000);
+    qa.addTransEle(2, "price", OBJECT, 3, false, PRIMITIVE);
+    qa.addTransEle(3, "", PRIMITIVE, 3, true);
+    qa.addTransEle(4, "", PRIMITIVE, 4, true);
+}*/
+
+// small records
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    //qa.addTransEle(1, "", OBJECT, 2, false);
+    ///qa.addTransEle(1, "items", OBJECT, 2, false, ARRAY);
+    ////qa.addTransEle(2, "", ARRAY, 3, false);
+   /// qa.addTransEle(1, "name", OBJECT, 4, false, PRIMITIVE);
+    qa.addTransEle(1, "bestMarketplacePrice", OBJECT, 2, false, OBJECT);
+  ///  qa.addIndexConstraints(3, 5000, 10000);
+    qa.addTransEle(2, "price", OBJECT, 3, false, PRIMITIVE);
+    qa.addTransEle(3, "", PRIMITIVE, 3, true);
+    qa.addTransEle(4, "", PRIMITIVE, 4, true);
+}*/
+
+/*__attribute__((always_inline)) void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    //qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(1, "items", OBJECT, 2, false, ARRAY);
+    qa.addTransEle(2, "", ARRAY, 3, false);
+    /// qa.addTransEle(3, "name", OBJECT, 6, false, PRIMITIVE); 
+    qa.addTransEle(3, "bestMarketplacePrice", OBJECT, 4, false, OBJECT);
+    // qa.addIndexConstraints(3, 5000, 10000);
+    qa.addTransEle(4, "price", OBJECT, 5, false, PRIMITIVE);
+    qa.addTransEle(5, "", PRIMITIVE, 5, true);
+    qa.addTransEle(6, "", PRIMITIVE, 6, true);
+}*/
+
+// small records
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    //qa.addTransEle(1, "", OBJECT, 2, false);
+    ///qa.addTransEle(1, "items", OBJECT, 2, false, ARRAY);
+    ////qa.addTransEle(2, "", ARRAY, 3, false);
+    // qa.addTransEle(1, "name", OBJECT, 4, false, PRIMITIVE);
+    qa.addTransEle(1, "bestMarketplacePrice", OBJECT, 2, false, OBJECT);
+  ///  qa.addIndexConstraints(3, 5000, 10000);
+    qa.addTransEle(2, "price", OBJECT, 3, false, PRIMITIVE);
+    qa.addTransEle(3, "", PRIMITIVE, 4, true);
+    qa.addTransEle(4, "", PRIMITIVE, 4, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    //qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(1, "items", OBJECT, 2, false, ARRAY);
+    qa.addTransEle(2, "", ARRAY, 3, false);
+    /// qa.addIndexConstraints(2, 8000, 10000);
+    qa.addTransEle(3, "bestMarketplacePrice", OBJECT, 4, false, OBJECT);
+    /// qa.addIndexConstraints(3, 5000, 10000);
+    qa.addTransEle(4, "price", OBJECT, 5, false, PRIMITIVE);
+    qa.addTransEle(5, "", PRIMITIVE, 5, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    //qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(1, "items", OBJECT, 2, false, ARRAY);
+    qa.addTransEle(2, "", ARRAY, 3, false);
+    qa.addTransEle(3, "bestMarketplacePrice", OBJECT, 4, false, OBJECT);
+    qa.addTransEle(4, "price", OBJECT, 5, false, PRIMITIVE);
+    qa.addTransEle(5, "", PRIMITIVE, 5, true);
+}*/
+
+// small records
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    /// qa.addTransEle(1, "", OBJECT, 2, false);
+    //qa.addTransEle(1, "data", OBJECT, 2, false, ARRAY);
+    //qa.addTransEle(2, "", ARRAY, 3, false);
+    qa.addTransEle(1, "", ARRAY, 2, false);
+   // qa.addTransEle(2, "", ARRAY, 3, false);
+    /// qa.addIndexConstraints(2, 1, 3);
+    qa.addTransEle(2, "", PRIMITIVE, 2, true, PRIMITIVE);
+    qa.addIndexConstraints(2, 1, 3);
+    /// qa.addTransEle(5, "", OUTPUT_CANDIDATE, 5, true);
+ }*/
+
+/*__attribute__((always_inline)) void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    /// qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(1, "data", OBJECT, 2, false, ARRAY);
+    qa.addTransEle(2, "", ARRAY, 3, false);
+    qa.addTransEle(3, "", ARRAY, 4, false);
+   // qa.addTransEle(2, "", ARRAY, 3, false);
+   ///  qa.addIndexConstraints(3, 1, 3);
+    qa.addTransEle(4, "", PRIMITIVE, 4, true, PRIMITIVE);
+ //   qa.addIndexConstraints(4, 1, 3);
+    /// qa.addTransEle(5, "", OUTPUT_CANDIDATE, 5, true);
+ }*/
+
+
+// small records
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    /// qa.addTransEle(1, "", OBJECT, 2, false);
+    //qa.addTransEle(1, "data", OBJECT, 2, false, ARRAY);
+    //qa.addTransEle(2, "", ARRAY, 3, false);
+    qa.addTransEle(1, "", ARRAY, 2, false);
+    qa.addTransEle(2, "", ARRAY, 3, false);
+    /// qa.addIndexConstraints(2, 1, 3);
+    qa.addTransEle(3, "", PRIMITIVE, 3, true, PRIMITIVE);
+   qa.addIndexConstraints(3, 2, 4);
+    /// qa.addTransEle(5, "", OUTPUT_CANDIDATE, 5, true);
+ }*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    /// qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(1, "data", OBJECT, 2, false, ARRAY);
+    qa.addTransEle(2, "", ARRAY, 3, false);
+    qa.addTransEle(3, "", ARRAY, 4, false);
+    qa.addTransEle(4, "", ARRAY, 5, false);
+ ///   qa.addIndexConstraints(3, 100, 100000);
+    qa.addTransEle(5, "", PRIMITIVE, 5, true, PRIMITIVE);
+    qa.addIndexConstraints(5, 2, 4);
+    /// qa.addTransEle(5, "", OUTPUT_CANDIDATE, 5, true);
+ }*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    /// qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(1, "data", OBJECT, 2, false, ARRAY);
+    qa.addTransEle(2, "", ARRAY, 3, false);
+    qa.addTransEle(3, "", ARRAY, 4, false);
+    qa.addTransEle(4, "", ARRAY, 5, false);
+ ///   qa.addIndexConstraints(3, 100, 100000);
+    qa.addTransEle(5, "", PRIMITIVE, 5, true, PRIMITIVE);
+    qa.addIndexConstraints(5, 1, 3);
+    /// qa.addTransEle(5, "", OUTPUT_CANDIDATE, 5, true);
+ }*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    /// qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(1, "data", OBJECT, 2, false, ARRAY);
+    qa.addTransEle(2, "", ARRAY, 3, false);
+    qa.addTransEle(3, "", ARRAY, 4, false);
+    qa.addIndexConstraints(3, 100, 100000);
+    qa.addTransEle(4, "", PRIMITIVE, 4, true, PRIMITIVE);
+ ///   qa.addIndexConstraints(4, 0, 3); 
+    /// qa.addTransEle(5, "", OUTPUT_CANDIDATE, 5, true);
+ }*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "meta", OBJECT, 2, false, OBJECT);
+    qa.addTransEle(2, "view", OBJECT, 3, false, OBJECT);
+    qa.addTransEle(3, "columns", OBJECT, 4, false, ARRAY);
+    qa.addTransEle(4, "", ARRAY, 5, false);
+    qa.addTransEle(5, "name", OBJECT, 6, false, PRIMITIVE);
+    qa.addTransEle(6, "", PRIMITIVE, 6, true);
+}*/
+
+// small records
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    // qa.addTransEle(1, "", ARRAY, 2, false);
+    // qa.addTransEle(1, "id", OBJECT, 2, false, PRIMITIVE);
+    qa.addTransEle(1, "text", OBJECT, 3, false, PRIMITIVE);
+    qa.addTransEle(2, "", PRIMITIVE, 2, true);
+    qa.addTransEle(3, "", PRIMITIVE, 3, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", ARRAY, 2, false);
+    ///qa.addTransEle(2, "id", OBJECT, 3, false, PRIMITIVE);
+    qa.addTransEle(2, "text", OBJECT, 4, false, PRIMITIVE);
+    qa.addTransEle(3, "", PRIMITIVE, 3, true);
+    qa.addTransEle(4, "", PRIMITIVE, 4, true); 
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    // qa.addTransEle(1, "", ARRAY, 2, false);
+    /// qa.addTransEle(1, "id", OBJECT, 6, false, PRIMITIVE);
+    qa.addTransEle(1, "entities", OBJECT, 2, false, OBJECT);
+    qa.addTransEle(2, "urls", OBJECT, 3, false, ARRAY);
+    qa.addTransEle(3, "", ARRAY, 4, false);
+    qa.addTransEle(4, "url", OBJECT, 5, false, PRIMITIVE);
+    qa.addTransEle(5, "", PRIMITIVE, 5, true);
+    qa.addTransEle(6, "", PRIMITIVE, 6, true);
+}*/
+
+/*__attribute__((always_inline)) void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", ARRAY, 2, false);
+    /// qa.addTransEle(2, "id", OBJECT, 7, false, PRIMITIVE); 
+    qa.addTransEle(2, "entities", OBJECT, 3, false, OBJECT);
+    qa.addTransEle(3, "urls", OBJECT, 4, false, ARRAY);
+    qa.addTransEle(4, "", ARRAY, 5, false);
+    qa.addTransEle(5, "url", OBJECT, 6, false, PRIMITIVE);
+    qa.addTransEle(6, "", PRIMITIVE, 6, true);
+    qa.addTransEle(7, "", PRIMITIVE, 7, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", ARRAY, 2, false);
+    qa.addTransEle(2, "entities", OBJECT, 3, false, OBJECT);
+    qa.addTransEle(3, "urls", OBJECT, 4, false, ARRAY);
+    qa.addTransEle(4, "", ARRAY, 5, false);
+    qa.addTransEle(5, "url", OBJECT, 6, false, PRIMITIVE);
+    qa.addTransEle(6, "", PRIMITIVE, 6, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    //qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(1, "items", OBJECT, 2, false, ARRAY);
+    qa.addTransEle(2, "", ARRAY, 3, false);
+    qa.addTransEle(3, "name", OBJECT, 4, false, PRIMITIVE);
+    qa.addTransEle(4, "", PRIMITIVE, 4, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    ///qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(1, "products", OBJECT, 2, false, ARRAY);
+    qa.addTransEle(2, "", ARRAY, 3, false);
+    qa.addTransEle(3, "shortDescription", OBJECT, 4, false, PRIMITIVE);
+    qa.addTransEle(4, "", PRIMITIVE, 4, true);
+}*/
+
+// small records
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+   // qa.addTransEle(1, "", OBJECT, 2, false);
+   //  qa.addTransEle(1, "products", OBJECT, 2, false, ARRAY);
+   // qa.addTransEle(2, "", ARRAY, 3, false);
+    qa.addTransEle(1, "videoChapters", OBJECT, 2, false, ARRAY);
+    // qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(2, "", ARRAY, 3, false);
+ //   qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(3, "chapter", OBJECT, 4, false, PRIMITIVE);
+    qa.addTransEle(4, "", PRIMITIVE, 4, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+   // qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(1, "products", OBJECT, 2, false, ARRAY);
+    qa.addTransEle(2, "", ARRAY, 3, false);
+     qa.addTransEle(3, "monthlyRecurringChargeGrandTotal", OBJECT, 4, false, PRIMITIVE);
+    ///qa.addTransEle(3, "validFrom", OBJECT, 4, false, PRIMITIVE);
+    // qa.addIndexConstraints(5, 1, 3);
+    //qa.addTransEle(4, "", ARRAY, 5, false);
+ //   qa.addIndexConstraints(5, 1, 3);
+    //qa.addTransEle(5, "chapter", OBJECT, 6, false, PRIMITIVE);
+    qa.addTransEle(4, "", PRIMITIVE, 4, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    ///qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(1, "products", OBJECT, 2, false, ARRAY);
+    qa.addTransEle(2, "", ARRAY, 3, false); 
+    qa.addTransEle(3, "artistName", OBJECT, 4, false, PRIMITIVE);
+    qa.addTransEle(4, "", PRIMITIVE, 4, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+   // qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(1, "products", OBJECT, 2, false, ARRAY);
+    qa.addTransEle(2, "", ARRAY, 3, false);
+    qa.addTransEle(3, "videoChapters", OBJECT, 4, false, ARRAY);
+    // qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(4, "", ARRAY, 5, false);
+ //   qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(5, "chapter", OBJECT, 6, false, PRIMITIVE);
+    qa.addTransEle(6, "", PRIMITIVE, 6, true);
+}*/
+
+// small records
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    ///qa.addTransEle(1, "", OBJECT, 2, false);
+   // qa.addTransEle(1, "products", OBJECT, 2, false, ARRAY);
+ //   qa.addTransEle(2, "", ARRAY, 3, false);
+    qa.addTransEle(1, "categoryPath", OBJECT, 2, false, ARRAY);
+///    qa.addIndexConstraints(3, 50003, 100010);
+   ///  qa.addIndexConstraints(3, 3, 10);
+    // qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(2, "", ARRAY, 3, false);
+    ///qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(3, "id", OBJECT, 4, false, PRIMITIVE);
+    qa.addIndexConstraints(3, 1, 3);
+    qa.addTransEle(4, "", PRIMITIVE, 4, true);
+}*/
+
+/*__attribute__((always_inline)) void StreamProcessor::generateAutomaton(QueryAutomaton& qa) {
+    qa.addStateTransInfo(1, false, ARRAY, NONE, "products", 2);
+    qa.addStateTransInfo(2, false, NONE, NONE, NULL, 3);  // next array starts
+    qa.addStateTransInfo(3, false, ARRAY, OBJECT, "categoryPath", 4);     
+    qa.addStateTransInfo(4, false, NONE, NONE, NULL, 5);  // next array starts 
+    qa.addStateTransInfo(5, false, PRIMITIVE, OBJECT, "id", 6);
+    qa.addIndexConstraints(5, 1, 3);
+    qa.addStateTransInfo(6, true, NONE, NONE, NULL, 6);  
+}*/
+
+/*__attribute__((always_inline)) void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    ///qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(1, "products", OBJECT, 2, false, ARRAY);
+    qa.addTransEle(2, "", ARRAY, 3, false);
+    qa.addTransEle(3, "categoryPath", OBJECT, 4, false, ARRAY);
+    //qa.addIndexConstraints(3, 50000, 100010);
+    /// qa.addIndexConstraints(3, 3, 10);
+    // qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(4, "", ARRAY, 5, false);
+    ///qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(5, "id", OBJECT, 6, false, PRIMITIVE);
+    qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(6, "", PRIMITIVE, 6, true);
+}*/
+
+/*__attribute__((always_inline)) void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    ///qa.addTransEle(1, "", OBJECT, 2, false);
+    //qa.addTransEle(1, "products", OBJECT, 2, false, ARRAY);
+    //qa.addTransEle(2, "", ARRAY, 3, false);
+    qa.addTransEle(1, "categoryPath", OBJECT, 2, false, ARRAY);
+    //qa.addIndexConstraints(3, 50000, 100010);
+    /// qa.addIndexConstraints(3, 3, 10);
+    // qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(2, "", ARRAY, 3, false);
+    ///qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(3, "id", OBJECT, 4, false, PRIMITIVE);
+    qa.addIndexConstraints(3, 1, 3);
+    qa.addTransEle(4, "", PRIMITIVE, 5, true);
+}*/
+
+/*__attribute__((always_inline)) void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    ///qa.addTransEle(1, "", OBJECT, 2, false);
+   // qa.addTransEle(1, "products", OBJECT, 2, false, ARRAY);
+  //  qa.addTransEle(2, "", ARRAY, 3, false);
+    qa.addTransEle(1, "shippingLevelsOfService", OBJECT, 2, false, ARRAY);
+    /// qa.addIndexConstraints(3, 50000, 100010);
+    /// qa.addIndexConstraints(3, 3, 10);
+    // qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(2, "", ARRAY, 3, false);
+    ///qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(3, "serviceLevelId", OBJECT, 4, false, PRIMITIVE);
+    qa.addIndexConstraints(3, 1, 3);
+    qa.addTransEle(4, "", PRIMITIVE, 4, true);
+}*/
+
+/*__attribute__((always_inline)) void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    ///qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(1, "products", OBJECT, 2, false, ARRAY);
+    qa.addTransEle(2, "", ARRAY, 3, false);
+    qa.addTransEle(3, "shippingLevelsOfService", OBJECT, 4, false, ARRAY);
+    /// qa.addIndexConstraints(3, 50000, 100010);
+    /// qa.addIndexConstraints(3, 3, 10);
+    // qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(4, "", ARRAY, 5, false);
+    ///qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(5, "serviceLevelId", OBJECT, 6, false, PRIMITIVE);
+    qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(6, "", PRIMITIVE, 6, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    ///qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(1, "products", OBJECT, 2, false, ARRAY);
+    qa.addTransEle(2, "", ARRAY, 3, false);
+    qa.addTransEle(3, "categoryPath", OBJECT, 4, false, ARRAY);
+    // qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(4, "", ARRAY, 5, false);
+    ///qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(5, "id", OBJECT, 6, false, PRIMITIVE);
+    qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(6, "", PRIMITIVE, 6, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    ///qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(1, "products", OBJECT, 2, false, ARRAY);
+    qa.addTransEle(2, "", ARRAY, 3, false);
+    qa.addTransEle(3, "categoryPath", OBJECT, 4, false, ARRAY);
+    // qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(4, "", ARRAY, 5, false);
+    // qa.addIndexConstraints(3, 1, 3);
+    qa.addTransEle(5, "id", OBJECT, 6, false, PRIMITIVE);
+    qa.addTransEle(6, "", PRIMITIVE, 6, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", ARRAY, 2, false);
+    qa.addTransEle(2, "claims", OBJECT, 3, false, OBJECT);
+///   qa.addIndexConstraints(2, 50000, 100001);
+    /// qa.addIndexConstraints(2, 10, 21);
+    qa.addTransEle(3, "P150", OBJECT, 4, false, ARRAY);
+    qa.addTransEle(4, "",ARRAY, 5, false);
+    qa.addTransEle(5, "mainsnak", OBJECT, 6, false, OBJECT);
+//    qa.addIndexConstraints(5, 1, 3); 
+    qa.addTransEle(6, "property", OBJECT, 7, false, PRIMITIVE);
+    qa.addTransEle(7, "", PRIMITIVE, 7, true);
+}*/
+
+// small records
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    // qa.addTransEle(1, "", ARRAY, 2, false);
+    qa.addTransEle(1, "claims", OBJECT, 2, false, OBJECT);
+    qa.addTransEle(2, "P150", OBJECT, 3, false, ARRAY);
+    qa.addTransEle(3, "",ARRAY, 4, false);
+    qa.addTransEle(4, "mainsnak", OBJECT, 5, false, OBJECT);
+    // qa.addIndexConstraints(4, 1, 3);
+    qa.addTransEle(5, "property", OBJECT, 6, false, PRIMITIVE);
+    qa.addTransEle(6, "", PRIMITIVE, 6, true);
+}*/
+
+// small records
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    // qa.addTransEle(1, "", ARRAY, 2, false);
+    qa.addTransEle(1, "claims", OBJECT, 2, false, OBJECT);
+    qa.addTransEle(2, "P150", OBJECT, 3, false, ARRAY);
+    qa.addTransEle(3, "",ARRAY, 4, false);
+    qa.addTransEle(4, "mainsnak", OBJECT, 5, false, OBJECT);
+    qa.addTransEle(5, "property", OBJECT, 6, false, PRIMITIVE);
+    qa.addTransEle(6, "", PRIMITIVE, 6, true);
+}*/
+
+/*__attribute__((always_inline)) void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", ARRAY, 2, false);
+    qa.addTransEle(2, "claims", OBJECT, 3, false, OBJECT);
+   qa.addIndexConstraints(2, 10, 21);
+//    qa.addIndexConstraints(2, 50000, 100001);
+    qa.addTransEle(3, "P150", OBJECT, 4, false, ARRAY);
+    qa.addTransEle(4, "",ARRAY, 5, false);
+    qa.addTransEle(5, "mainsnak", OBJECT, 6, false, OBJECT);
+    qa.addTransEle(6, "property", OBJECT, 7, false, PRIMITIVE);
+    qa.addTransEle(7, "", PRIMITIVE, 7, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", ARRAY, 2, false);
+    qa.addTransEle(2, "claims", OBJECT, 3, false, OBJECT);
+    qa.addTransEle(3, "P150", OBJECT, 4, false, ARRAY);
+    qa.addTransEle(4, "",ARRAY, 5, false);
+    qa.addTransEle(5, "mainsnak", OBJECT, 6, false, OBJECT);
+    qa.addTransEle(6, "property", OBJECT, 7, false, PRIMITIVE);
+    qa.addTransEle(7, "", PRIMITIVE, 7, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    // qa.addTransEle(1, "", ARRAY, 2, false);
+    qa.addTransEle(1, "available_travel_modes", OBJECT, 2, false, ARRAY);
+    qa.addTransEle(2, "", ARRAY, 3, false);
+    qa.addTransEle(3, "", PRIMITIVE, 3, true, PRIMITIVE);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", ARRAY, 2, false);
+    qa.addTransEle(2, "available_travel_modes", OBJECT, 3, false, PRIMITIVE);
+    // qa.addTransEle(3, "", ARRAY, 4, false);
+    qa.addTransEle(3, "", PRIMITIVE, 3, true, PRIMITIVE);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", ARRAY, 2, false);
+    qa.addTransEle(2, "available_travel_modes", OBJECT, 3, false, ARRAY);
+    qa.addTransEle(3, "", ARRAY, 4, false); 
+    qa.addTransEle(4, "", PRIMITIVE, 4, true, PRIMITIVE);
+}*/
+
+/*__attribute__((always_inline)) void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    // qa.addTransEle(1, "", ARRAY, 2, false);
+    qa.addTransEle(1, "routes", OBJECT, 2, false, ARRAY);  //current state expects an object value, which expects a routes key
+    qa.addTransEle(2, "", ARRAY, 3, false);  // current state after reading "routes" expects an array value
+    qa.addTransEle(3, "legs", OBJECT, 4, false, ARRAY);  // inside array, it expects an object value, which expectes a legs key
+    qa.addTransEle(4, "", ARRAY, 5, false);
+    qa.addTransEle(5, "steps", OBJECT, 6, false, ARRAY);
+    qa.addTransEle(6, "", ARRAY, 7, false);
+    qa.addTransEle(7, "distance", OBJECT, 8, false, OBJECT);
+    qa.addTransEle(8, "text", OBJECT, 9, false, PRIMITIVE);
+    qa.addTransEle(9, "", PRIMITIVE, 9, true, PRIMITIVE);
+}*/
+
+// save value type
+/*__attribute__((always_inline)) void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", ARRAY, 2, false);
+    qa.addTransEle(2, "routes", OBJECT, 3, false, ARRAY);  //current state expects an object value, which expects a routes key
+    qa.addTransEle(3, "", ARRAY, 4, false);  // current state after reading "routes" expects an array value
+    qa.addTransEle(4, "legs", OBJECT, 5, false, ARRAY);  // inside array, it expects an object value, which expectes a legs key
+    qa.addTransEle(5, "", ARRAY, 6, false);
+    qa.addTransEle(6, "steps", OBJECT, 7, false, ARRAY);
+    qa.addTransEle(7, "", ARRAY, 8, false);
+    qa.addTransEle(8, "distance", OBJECT, 9, false, OBJECT);
+    qa.addTransEle(9, "text", OBJECT, 10, false, PRIMITIVE);
+    qa.addTransEle(10, "", PRIMITIVE, 10, true, PRIMITIVE);
+}*/
+
+// $[*].routes[*].legs[*].steps[*].distance.text
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", ARRAY, 2, false);
+    qa.addTransEle(2, "", OBJECT, 3, false);
+    qa.addTransEle(3, "routes", KEY_ARRAY, 4, false);
+    qa.addTransEle(4, "", OBJECT, 5, false);
+    qa.addTransEle(5, "legs", KEY_ARRAY, 6, false);
+    qa.addTransEle(6, "", OBJECT, 7, false);
+    qa.addTransEle(7, "steps", KEY_ARRAY, 8, false);
+    qa.addTransEle(8, "", OBJECT, 9, false);
+    qa.addTransEle(9, "distance", KEY_OBJECT, 10, false); 
+    qa.addTransEle(10, "text", KEY, 11, false);
+    qa.addTransEle(11, "", OUTPUT_CANDIDATE, 11, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    //qa.addTransEle(1, "", ARRAY, 2, false);
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "routes", KEY_ARRAY, 3, false);
+    qa.addTransEle(3, "", OBJECT, 4, false);
+    qa.addTransEle(4, "legs", KEY_ARRAY, 5, false);
+    qa.addTransEle(5, "", OBJECT, 6, false);
+    qa.addTransEle(6, "steps", KEY_ARRAY, 7, false);
+    qa.addTransEle(7, "", OBJECT, 8, false);
+    qa.addTransEle(8, "distance", KEY_OBJECT, 9, false);
+    qa.addTransEle(9, "text", KEY, 10, false);
+    // qa.initExpectedKeysInfo(9);
+    qa.addTransEle(10, "", OUTPUT_CANDIDATE, 10, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+   // qa.addTransEle(1, "", OBJECT, 2, false);
+   // qa.addTransEle(2, "products", KEY_ARRAY, 3, false);
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "videoChapters", KEY_ARRAY, 3, false);
+    // qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(3, "", OBJECT, 4, false);
+ //   qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(4, "chapter", KEY, 5, false);
+    qa.addTransEle(5, "", OUTPUT_CANDIDATE, 5, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+   // qa.addTransEle(1, "", OBJECT, 2, false);
+   // qa.addTransEle(2, "products", KEY_ARRAY, 3, false);
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "additionalFeatures", KEY_ARRAY, 3, false);
+    // qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(3, "", OBJECT, 4, false);
+ //   qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(4, "feature", KEY, 5, false);
+    qa.addTransEle(5, "", OUTPUT_CANDIDATE, 5, true);
+}*/
+
+
+// available_travel_modes
+ /*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    //qa.addTransEle(1, "", ARRAY, 2, false);
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "available_travel_modes", KEY_ARRAY, 3, false);
+    /*qa.addTransEle(3, "", OBJECT, 4, false);
+    qa.addTransEle(4, "legs", KEY_ARRAY, 5, false);
+    qa.addTransEle(5, "", OBJECT, 6, false);
+    qa.addTransEle(6, "steps", KEY_ARRAY, 7, false);
+    qa.addTransEle(7, "", OBJECT, 8, false);
+    qa.addTransEle(8, "distance", KEY_OBJECT, 9, false);
+    qa.addTransEle(9, "text", KEY, 10, false);*/
+   /* qa.addTransEle(3, "", OUTPUT_CANDIDATE, 3, true);
+}*/
+
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+   // qa.addTransEle(1, "", OBJECT, 2, false);
+   // qa.addTransEle(2, "products", KEY_ARRAY, 3, false);
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "categoryPath", KEY_ARRAY, 3, false);
+    // qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(3, "", OBJECT, 4, false);
+    qa.addIndexConstraints(3, 1, 3);
+    qa.addTransEle(4, "id", KEY, 5, false);
+    qa.addTransEle(5, "", OUTPUT_CANDIDATE, 5, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+   // qa.addTransEle(1, "", OBJECT, 2, false);
+   // qa.addTransEle(2, "products", KEY_ARRAY, 3, false);
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "categoryPath", KEY_ARRAY, 3, false);
+    // qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(3, "", OBJECT, 4, false);
+    qa.addIndexConstraints(3, 1, 3);
+    qa.addTransEle(4, "id", KEY, 5, false);
+    qa.addTransEle(5, "", OUTPUT_CANDIDATE, 5, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "total", KEY, 3, false);
+    qa.addTransEle(3, "", OUTPUT_CANDIDATE, 3, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "products", KEY_ARRAY, 3, false);
+    qa.addTransEle(3, "", OBJECT, 4, false);
+    qa.addTransEle(4, "categoryPath", KEY_ARRAY, 5, false);
+    // qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(5, "", OBJECT, 6, false);
+    qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(6, "id", KEY, 7, false);
+    qa.addTransEle(7, "", OUTPUT_CANDIDATE, 7, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", ARRAY, 2, false);
+    qa.addTransEle(2, "", OBJECT, 3, false);
+    qa.addTransEle(3, "entities", KEY_OBJECT, 4, false);
+    qa.addTransEle(3, "id", KEY, 8, false);
+    qa.addTransEle(4, "urls", KEY_ARRAY, 5, false);
+    qa.addTransEle(5, "", OBJECT, 6, false);
+    // qa.addTransEle(5, "indices", KEY_ARRAY, 6, false);
+    qa.addTransEle(6, "url", KEY, 7, false);
+    qa.addTransEle(7, "", OUTPUT_CANDIDATE, 7, true);
+    qa.addTransEle(8, "", OUTPUT_CANDIDATE, 8, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    //qa.addTransEle(1, "", ARRAY, 2, false);
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "entities", KEY_OBJECT, 3, false);
+    qa.addTransEle(2, "id", KEY, 7, false);
+    qa.addTransEle(3, "urls", KEY_ARRAY, 4, false);
+    qa.addTransEle(4, "", OBJECT, 5, false);
+    // qa.addTransEle(5, "indices", KEY_ARRAY, 6, false);
+    qa.addTransEle(5, "url", KEY, 6, false);
+    qa.addTransEle(6, "", OUTPUT_CANDIDATE, 6, true);
+    qa.addTransEle(7, "", OUTPUT_CANDIDATE, 7, true);
+}*/
+
+// $.products[*].categoryPath[*].id
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "products", KEY_ARRAY, 3, false);
+    qa.addTransEle(3, "", OBJECT, 4, false);
+    qa.addTransEle(4, "categoryPath", KEY_ARRAY, 5, false);
+    // qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(5, "", OBJECT, 6, false);
+ //   qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(6, "id", KEY, 7, false);
+    qa.addTransEle(7, "", OUTPUT_CANDIDATE, 7, true);
+}*/
+
+// $.products[*].categoryPath[*].id
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", OBJECT, 1, false);
+    qa.addTransEle(1, "products", KEY_ARRAY, 2, false);
+    qa.addTransEle(2, "", OBJECT, 2, false);
+    qa.addTransEle(2, "categoryPath", KEY_ARRAY, 3, false);
+    // qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(3, "", OBJECT, 3, false);
+    // qa.addIndexConstraints(3, 1, 3);
+    qa.addTransEle(3, "id", KEY, 4, false);
+    qa.addIndexConstraints(3, 1, 3);
+    qa.addTransEle(4, "", OUTPUT_CANDIDATE, 4, true);
+}*/
+
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+//    qa.addTransEle(1, "", OBJECT, 2, false);
+//    qa.addTransEle(2, "products", KEY_ARRAY, 3, false);
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "categoryPath", KEY_ARRAY, 3, false);
+    // qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(3, "", OBJECT, 4, false);
+    qa.addIndexConstraints(3, 0, 3);
+    qa.addTransEle(4, "id", KEY, 5, false);
+    qa.addTransEle(5, "", OUTPUT_CANDIDATE, 5, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", ARRAY, 2, false);
+    qa.addTransEle(2, "", OBJECT, 3, false);
+    qa.addTransEle(3, "in_reply_to_screen_name", KEY, 4, false);
+    qa.addBestSubkey(3, 0, "scre");
+    /*qa.addTransEle(4, "urls", KEY_ARRAY, 5, false);
+    qa.addTransEle(5, "", OBJECT, 6, false);
+    qa.addTransEle(6, "url", KEY, 7, false);
+    */
+ /*   qa.addTransEle(4, "", OUTPUT_CANDIDATE, 4, true);
+}*/
+
+// $[*].entities.urls[*].url
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", ARRAY, 2, false);
+    qa.addTransEle(2, "", OBJECT, 3, false);
+    qa.addTransEle(3, "entities", KEY_OBJECT, 4, false);
+    qa.addTransEle(4, "urls", KEY_ARRAY, 5, false);
+    qa.addTransEle(5, "", OBJECT, 6, false);
+    qa.addTransEle(6, "url", KEY, 7, false);
+    qa.addTransEle(7, "", OUTPUT_CANDIDATE, 7, true);
+}*/
+
+// $.meta.view.columns[*].name
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    /*qa.addTransEle(1, "", OBJECT, 1, false);
+    qa.addTransEle(1, "meta", KEY_OBJECT, 2, false);
+    qa.addTransEle(2, "view", KEY_OBJECT, 3, false);
+    qa.addTransEle(3, "columns", KEY_ARRAY, 4, false);
+    qa.addTransEle(4, "", OBJECT, 4, false);
+    qa.addTransEle(4, "name", KEY, 5, false);
+    qa.addTransEle(5, "", OUTPUT_CANDIDATE, 5, true);*/
+    /*qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "meta", KEY_OBJECT, 3, false);
+    qa.addTransEle(3, "view", KEY_OBJECT, 4, false);
+    qa.addTransEle(4, "columns", KEY_ARRAY, 5, false);
+    qa.addTransEle(5, "", OBJECT, 6, false);
+    qa.addTransEle(6, "name", KEY, 7, false);
+    qa.addTransEle(7, "", OUTPUT_CANDIDATE, 7, true);
+}
+
+  /*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "data", KEY_ARRAY, 3, false);
+    qa.addTransEle(3, "", ARRAY, 4, false);
+    qa.addTransEle(4, "", ARRAY, 5, false);
+    qa.addIndexConstraints(4, 1, 3); 
+    /*qa.addTransEle(4, "columns", KEY_ARRAY, 5, false);
+    qa.addTransEle(5, "", OBJECT, 6, false);
+    qa.addTransEle(6, "name", KEY, 7, false);*/
+    /*qa.addTransEle(5, "", OUTPUT_CANDIDATE, 5, true);
+  }*/
+
+ /*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    // qa.addTransEle(1, "", OBJECT, 2, false);
+    // qa.addTransEle(2, "data", KEY_ARRAY, 3, false);
+    qa.addTransEle(1, "", ARRAY, 2, false);
+    qa.addTransEle(2, "", ARRAY, 3, false);
+    qa.addIndexConstraints(2, 1, 3);
+    qa.addTransEle(3, "", OUTPUT_CANDIDATE, 3, true);
+ } */
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "items", KEY_ARRAY, 3, false);
+    //qa.init();
+    qa.addTransEle(3, "", OBJECT, 4, false);
+   // qa.addTransEle(4, "maxItemsInOrder", KEY, 6, false);
+    qa.addTransEle(4, "bestMarketplacePrice", KEY_OBJECT, 5, false);
+    qa.addTransEle(4, "name", KEY, 7, false);
+    qa.addTransEle(5, "price", KEY, 6, false);
+    qa.addTransEle(6, "", OUTPUT_CANDIDATE, 6, true);
+    qa.addTransEle(7, "", OUTPUT_CANDIDATE, 7, true);
+  }*/
+
+
+  /*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    //qa.addTransEle(1, "", OBJECT, 2, false);
+    //qa.addTransEle(2, "items", KEY_ARRAY, 3, false);
+    //qa.init();
+    qa.addTransEle(1, "", OBJECT, 2, false);
+   // qa.addTransEle(4, "maxItemsInOrder", KEY, 6, false);
+    qa.addTransEle(2, "bestMarketplacePrice", KEY_OBJECT, 3, false);
+    qa.addTransEle(2, "name", KEY, 5, false);
+    qa.addTransEle(3, "price", KEY, 4, false);
+    qa.addTransEle(4, "", OUTPUT_CANDIDATE, 4, true);
+    qa.addTransEle(5, "", OUTPUT_CANDIDATE, 5, true);
+  }*/
+
+// $.items[*].bestMarketplacePrice.price
+ /*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "items", KEY_ARRAY, 3, false);
+    qa.addTransEle(3, "", OBJECT, 4, false);
+    qa.addTransEle(4, "bestMarketplacePrice", KEY_OBJECT, 5, false);
+    qa.addTransEle(5, "price", KEY, 6, false);
+    qa.addTransEle(6, "", OUTPUT_CANDIDATE, 6, true);
+}*/
+
+ /*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    //qa.addTransEle(1, "", OBJECT, 2, false);
+    //qa.addTransEle(2, "items", KEY_ARRAY, 3, false);
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "itemId", KEY, 3, false);
+    qa.addTransEle(3, "", OUTPUT_CANDIDATE, 3, true);
+ }*/
+
+  /*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    //qa.addTransEle(1, "", OBJECT, 2, false);
+    //qa.addTransEle(2, "items", KEY_ARRAY, 3, false);
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "bestMarketplacePrice", KEY_OBJECT, 3, false);
+    qa.addTransEle(3, "price", KEY, 4, false);
+    qa.addTransEle(4, "", OUTPUT_CANDIDATE, 4, true);
+ }*/
+
+  /*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    //qa.addTransEle(1, "", OBJECT, 2, false);
+    //qa.addTransEle(2, "items", KEY_ARRAY, 3, false);
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "isbn", KEY, 3, false);
+    //qa.addTransEle(3, "price", KEY, 4, false);
+    qa.addTransEle(3, "", OUTPUT_CANDIDATE, 3, true);
+ }*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    //qa.addTransEle(1, "", OBJECT, 2, false);
+    //qa.addTransEle(2, "items", KEY_ARRAY, 3, false);
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "bestMarketplacePrice", KEY_OBJECT, 3, false);
+    qa.addTransEle(3, "price", KEY, 4, false);
+    qa.initExpectedKeysInfo(3);
+    qa.addTransEle(4, "", OUTPUT_CANDIDATE, 4, true);
+}*/
+
+// $[*].claims.P150[*].mainsnak.property
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", ARRAY, 2, false);
+    qa.addTransEle(2, "", OBJECT, 3, false);
+    qa.addTransEle(3, "claims", KEY_OBJECT, 4, false);
+    qa.addTransEle(4, "P150", KEY_ARRAY, 5, false);
+    qa.addTransEle(5, "", OBJECT, 6, false);
+    qa.addTransEle(6, "mainsnak", KEY_OBJECT, 7, false);
+    qa.addTransEle(7, "property", KEY, 8, false);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    //qa.addTransEle(1, "", ARRAY, 2, false);
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "claims", KEY_OBJECT, 3, false);
+    qa.addTransEle(3, "P150", KEY_ARRAY, 4, false);
+    qa.addTransEle(4, "", OBJECT, 5, false);
+    qa.addTransEle(5, "mainsnak", KEY_OBJECT, 6, false);
+    qa.addTransEle(6, "property", KEY, 7, false);
+    qa.addTransEle(7, "", OUTPUT_CANDIDATE, 7, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    //qa.addTransEle(1, "", ARRAY, 2, false);
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "claims", KEY_OBJECT, 3, false);
+    qa.addTransEle(3, "P156", KEY_ARRAY, 4, false);
+    qa.addTransEle(4, "", OBJECT, 5, false);
+    qa.addTransEle(5, "mainsnak", KEY_OBJECT, 6, false);
+    qa.addTransEle(6, "property", KEY, 7, false);
+    qa.addTransEle(7, "", OUTPUT_CANDIDATE, 7, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "items", KEY_ARRAY, 3, false);
+    qa.addTransEle(3, "", OBJECT, 4, false);
+    qa.addTransEle(4, "availableOnline", KEY, 5, false); //largeImage
+///     qa.addBestSubkey(4, 0, "eOnl");
+  //  qa.addTransEle(4, "bestMarketplacePrice", KEY_OBJECT, 5, false);
+  //  qa.addTransEle(5, "price", KEY, 6, false);
+    qa.addTransEle(5, "", OUTPUT_CANDIDATE, 5, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    //qa.addTransEle(1, "", OBJECT, 2, false);
+    //qa.addTransEle(2, "items", KEY_ARRAY, 3, false);
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "availableOnline", KEY, 3, false); //largeImage
+///     qa.addBestSubkey(4, 0, "eOnl");
+  //  qa.addTransEle(4, "bestMarketplacePrice", KEY_OBJECT, 5, false);
+  //  qa.addTransEle(5, "price", KEY, 6, false);
+    qa.addTransEle(3, "", OUTPUT_CANDIDATE, 3, true);
+}*/
+
+// build quote bitmap and string mask bitmap for the current word
+__attribute__((always_inline)) void StreamProcessor::build_bitmap_basic() {
+    // unsigned long str_mask;
+    unsigned long quotebit0, escapebit0;
+    unsigned long quotebit, escapebit;
+    // start_id, top_word
+    // first half of bitmap
+    top_word = start_id / 2; // word id 
+    //if (top_word == 15861276)
+    ///    cout<<"start_id to 15861276 "<<start_id<<endl;
+    unsigned long i = start_id * 32;
+    //cout<<"new word "<<substring_200(mRecord + i, 0, 64)<<endl;
+    v_text0 = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(mRecord + i));
+    quotebit0 = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text0, v_quote));
+    escapebit0 = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text0, v_escape));
+    // second half of bitmap 
+    ++start_id;
+    i = (start_id) * 32;
+    v_text = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(mRecord + i));
+    quotebit = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text, v_quote));
+    escapebit = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text, v_escape));
+    quotebit = (quotebit << 32) | quotebit0;
+    escapebit = (escapebit << 32) | escapebit0;
+    // step 2: update structural quote bitmaps
+    uint64_t bs_bits = escapebit;
+    uint64_t start_edges = bs_bits & ~(bs_bits << 1);
+    int64_t even_start_mask = even_bits ^ prev_iter_ends_odd_backslash;
+    uint64_t even_starts = start_edges & even_start_mask;
+    uint64_t odd_starts = start_edges & ~even_start_mask;
+    uint64_t even_carries = bs_bits + even_starts;
+    int64_t odd_carries;
+    bool iter_ends_odd_backslash = __builtin_uaddll_overflow(bs_bits, odd_starts,
+        (unsigned long long *)(&odd_carries));
+    odd_carries |= prev_iter_ends_odd_backslash;
+    prev_iter_ends_odd_backslash = iter_ends_odd_backslash ? 0x1ULL : 0x0ULL;
+    uint64_t even_carry_ends = even_carries & ~bs_bits;
+    uint64_t odd_carry_ends = odd_carries & ~bs_bits;
+    uint64_t even_start_odd_end = even_carry_ends & odd_bits;
+    uint64_t odd_start_even_end = odd_carry_ends & even_bits;
+    uint64_t odd_ends = even_start_odd_end | odd_start_even_end;
+    quote_bits = quotebit & ~odd_ends;
+     // step 3: build string mask bitmaps
+    str_mask = _mm_cvtsi128_si64(_mm_clmulepi64_si128(
+        _mm_set_epi64x(0ULL, quote_bits), _mm_set1_epi8(0xFFu), 0));
+    str_mask ^= prev_iter_inside_quote;
+    prev_iter_inside_quote = static_cast<uint64_t>(static_cast<int64_t>(str_mask) >> 63);
+}
+
+__attribute__((always_inline)) void StreamProcessor::build_bitmap_colon(bitmap& bm) {
+    unsigned long colonbit0, colonbit;
+    colonbit0 = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text0, v_colon));
+    colonbit = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text, v_colon));
+    bm.colonbit = (colonbit << 32) | colonbit0;
+    bm.colonbit = bm.colonbit & (~str_mask);
+}
+
+__attribute__((always_inline)) void StreamProcessor::get_bitmap_colon(bitmap& bm) {
+    if (bm.has_colon == false) {
+        build_bitmap_colon(bm);
+        bm.has_colon = true;
+    }
+}
+
+__attribute__((always_inline)) void StreamProcessor::build_bitmap_comma(bitmap& bm) {
+    unsigned long commabit0, commabit;
+    commabit0 = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text0, v_comma));
+    commabit = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text, v_comma));
+    bm.commabit = (commabit << 32) | commabit0;
+    bm.commabit = bm.commabit & (~str_mask);
+}
+
+__attribute__((always_inline)) void StreamProcessor::get_bitmap_comma(bitmap& bm) {
+    if (bm.has_comma == false) {
+        build_bitmap_comma(bm);
+        bm.has_comma = true;
+    }
+}
+
+__attribute__((always_inline)) void StreamProcessor::build_bitmap_lbrace(bitmap& bm) {
+    unsigned long lbracebit0, lbracebit;
+    lbracebit0 = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text0, v_lbrace));
+    lbracebit = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text, v_lbrace));
+    bm.lbracebit = (lbracebit << 32) | lbracebit0;
+    bm.lbracebit = bm.lbracebit & (~str_mask);
+}
+
+__attribute__((always_inline)) void StreamProcessor::get_bitmap_lbrace(bitmap& bm) {
+    if (bm.has_lbrace == false) {
+        build_bitmap_lbrace(bm);
+        bm.has_lbrace = true;
+    }
+}
+
+__attribute__((always_inline)) void StreamProcessor::build_bitmap_rbrace(bitmap& bm) {
+    unsigned long rbracebit0, rbracebit;
+    rbracebit0 = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text0, v_rbrace));
+    rbracebit = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text, v_rbrace));
+    bm.rbracebit = (rbracebit << 32) | rbracebit0;
+    bm.rbracebit = bm.rbracebit & (~str_mask);
+}
+
+__attribute__((always_inline)) void StreamProcessor::get_bitmap_rbrace(bitmap& bm) {
+    if (bm.has_rbrace == false) {
+        build_bitmap_rbrace(bm);
+        bm.has_rbrace = true;
+    }
+}
+
+__attribute__((always_inline)) void StreamProcessor::build_bitmap_lbracket(bitmap& bm) {
+    unsigned long lbracketbit0, lbracketbit;
+    lbracketbit0 = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text0, v_lbracket));
+    lbracketbit = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text, v_lbracket));
+    bm.lbracketbit = (lbracketbit << 32) | lbracketbit0;
+    bm.lbracketbit = bm.lbracketbit & (~str_mask);
+}
+
+__attribute__((always_inline)) void StreamProcessor::get_bitmap_lbracket(bitmap& bm) {
+    if (bm.has_lbracket == false) {
+        build_bitmap_lbracket(bm);
+        bm.has_lbracket = true;
+    }
+}
+
+__attribute__((always_inline)) void StreamProcessor::build_bitmap_rbracket(bitmap& bm) {
+    unsigned long rbracketbit0, rbracketbit;
+    rbracketbit0 = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text0, v_rbracket));
+    rbracketbit = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text, v_rbracket));
+    bm.rbracketbit = (rbracketbit << 32) | rbracketbit0;
+    bm.rbracketbit = bm.rbracketbit & (~str_mask);
+    /// cout<<"rbracket bit "<<bm.rbracketbit<<endl;
+}
+
+__attribute__((always_inline)) void StreamProcessor::get_bitmap_rbracket(bitmap& bm) {
+    if (bm.has_rbracket == false) {
+        /// cout<<"build for rbracket "<<endl;
+        build_bitmap_rbracket(bm);
+        bm.has_rbracket = true;
+    }
+}
+
+__attribute__((always_inline)) IntervalInfo StreamProcessor::get_interval(long& pos, unsigned long& bitmap) {
+    IntervalInfo itv_info;
+    int relative_pos = pos % 64;
+    unsigned long w_start = (1UL << relative_pos);
+    // unsigned long w_temp = (1UL<< relative_pos);
+    // cout<<"pos "<<pos<<" "<<relative_pos<<" "<<w_start<<" "<<w_temp<<endl;
+    unsigned long mask_start = w_start ^ (w_start - 1);
+    bitmap = bitmap & (~mask_start);
+    if (bitmap) {
+        unsigned long w_end = bitmap & (-bitmap);
+        unsigned long w_interval = (w_end - w_start) | w_end;
+        itv_info.intervalbit = w_interval & (~mask_start);
+        itv_info.is_complete = true;
+    } else {
+        // include the last character inside the word (incomplete interval)
+        unsigned long w_end = (1UL << 63);
+        unsigned long w_interval = (w_end - w_start) | w_end;
+        itv_info.intervalbit = w_interval & (~mask_start);
+        itv_info.is_complete = false;
+    }
+    return itv_info;
+}
+
+__attribute__((always_inline)) IntervalInfo StreamProcessor::get_interval_new_word(unsigned long& bitmap) {
+    IntervalInfo itv_info;
+    unsigned long w_start = 1;
+    if (bitmap) {
+        unsigned long w_end = bitmap & (-bitmap);
+        unsigned long w_interval = (w_end - w_start) | w_end;
+        itv_info.intervalbit = w_interval;
+        itv_info.is_complete = true;
+    } else {
+        // include the last character inside the word (incomplete interval)
+        unsigned long w_end = (1UL << 63);
+        unsigned long w_interval = (w_end - w_start) | w_end;
+        itv_info.intervalbit = w_interval;
+        itv_info.is_complete = false;
+    }
+    return itv_info;
+}
+
+__attribute__((always_inline)) IntervalInfo StreamProcessor::next_interval(unsigned long& bitmap) {
+    IntervalInfo itv_info;
+    unsigned long w_start = bitmap & (-bitmap);
+    bitmap = bitmap & (bitmap - 1);
+    if (bitmap) {
+        unsigned long w_end = bitmap & (-bitmap);
+        unsigned long w_interval = (w_end - w_start) | w_end;
+        itv_info.intervalbit = w_interval;
+        itv_info.is_complete = true;
+    } else {
+        // include the last character inside the word (incomplete interval)
+        unsigned long w_end = (1UL << 63);
+        unsigned long w_interval = (w_end - w_start) | w_end;
+        itv_info.intervalbit = w_interval;
+        itv_info.is_complete = false;
+    }
+    return itv_info;
+}
+
+__attribute__((always_inline)) long StreamProcessor::get_position(unsigned long& bitmap, int number) {
+    while (number > 1) {
+        bitmap = bitmap & (bitmap - 1);
+        --number;
+    }
+    unsigned long pos = top_word * 64 + __builtin_ctzll(bitmap);
+    return pos;
+}
+
+__attribute__((always_inline)) int StreamProcessor::count(unsigned long& interval, unsigned long& bitmap) {
+    return __builtin_popcountl(bitmap & interval); 
+}
+
+__attribute__((always_inline)) long StreamProcessor::object_end(unsigned long& interval, unsigned long& bitmap) {
+    return top_word * 64 + 64 - __builtin_clzll(bitmap & interval);
+}
+
+__attribute__((always_inline)) long StreamProcessor::interval_end(unsigned long& interval) {
+    // TODO: confirm whether it is absolute or relevant
+    long temp = top_word * 64 + 63 - __builtin_clzll(interval);
+    ///if (interval == 0 && temp % 64 == 0) 
+        ///cout<<"*********** word id "<<top_word<<" "<<__builtin_clzll(interval)<<endl;
+    //long temp_pos = top_word * 64 _+ 63 - __buildin_clzll(interval);
+    
+    return top_word * 64 + 63 - __builtin_clzll(interval);
+}
+
+// TODO: confirm whether we need to return END_OBJECT, similar for skipArray and skipPrimitive
+// TODO: how to get interval and pos, similar issue happens for all following functions
+__attribute__((always_inline)) void StreamProcessor::skipObject(long& pos, bitmap& bm) {
+    int num_open = 1;
+    int num_close = 0;
+    long word_id = pos / 64;
+    bool first_interval = false;
+    // int relevant_pos = pos % 64;  // relevant position for the current word
+    bool new_word = false;
+    // TODO: used for debugging
+    /// long start_pos = 1015121679;
+    /// long st_pos = pos;
+    while (true) {
+        while (word_id < mNumWords) {
+            if (word_id > top_word) {
+                /// if (word_id == 15861276) cout<<"build basic for word "<<substring_200(mRecord, word_id * 64, word_id * 64 + 64)<<" "<<top_word<<endl;
+                // build basic bitmaps for the next word
+                resetBitmap(bm);
+                start_id = word_id * 2;
+                /// if (start_id == 31722552) cout<<"word id build "<<word_id<<" "<<top_word<<endl;
+                build_bitmap_basic();
+            } /*else {
+                // current word
+            }*/
+            /// if (word_id == 15861276 && bm.has_lbrace == false) cout<<"create lbracket bitmap "<<endl;
+            get_bitmap_lbrace(bm);
+            IntervalInfo interval;
+            if (first_interval == false) {
+                if (new_word == true) {
+                    /*if (word_id == 15861276) {
+                        bitset<64> tempbit(bm.lbracebit);
+                        cout<<"new word interval "<<tempbit<<" "<<bm.has_lbrace<<" "<<top_word<<endl;
+                    }*/
+                    interval = get_interval_new_word(bm.lbracebit);
+                } else {
+                    /*if (st_pos == start_pos) {
+                        bitset<64> tempbit(bm.lbracebit);
+                        cout<<"first interval "<<tempbit<<" "<<word_id<<" "<<bm.has_lbrace<<" "<<top_word<<endl;
+                    }*/
+                    interval = get_interval(pos, bm.lbracebit);
+                }
+                first_interval = true;
+            } else {
+                // if (st_pos == start_pos) {
+                /*if (word_id == 15861276) {
+                    bitset<64> tempbit(bm.lbracebit); 
+                    cout<<"next interval "<<tempbit<<" "<<top_word<<endl;
+                }*/
+                interval = next_interval(bm.lbracebit);
+            }
+            get_bitmap_rbrace(bm);
+            unsigned long bitmap_rbrace = bm.rbracebit & interval.intervalbit;
+            num_close = __builtin_popcountl(bitmap_rbrace);
+            /*if (st_pos == start_pos) {
+                bitset<64> tempbit(bm.lbracebit);
+                cout<<"num open "<<num_open<<" "<<num_close<<" "<<tempbit<<" "<<substring_200(mRecord, word_id * 64, word_id * 64 + 64)<<endl;
+            }*/
+            if (num_close < num_open) {
+                if (interval.is_complete == true) {
+                    num_open = num_open - num_close + 1;
+                    break;
+                } else {
+                    num_open = num_open - num_close;
+                }
+            } else {  // results found
+                pos = get_position(bitmap_rbrace, num_open);  //bm.rbracebit
+                return;
+            }
+            // interval is incomplete in the current word
+            ++word_id;
+            /// ++start_id;
+            first_interval = false;
+            // relevant_pos = 0;
+            new_word = true;
+        }
+    }
+}
+
+__attribute__((always_inline)) void StreamProcessor::skipArray(long& pos, bitmap& bm) {
+    /// cout<<"calling skip array "<<pos<<" "<<mNumWords<<" "<<mRecord[pos]<<endl;
+    int num_open = 1;
+    int num_close = 0;
+    long word_id = pos / 64;
+    bool first_interval = false;
+    // int relevant_pos = pos % 64;
+    bool new_word = false;
+    while (true) {
+        while (word_id < mNumWords) {
+            if (word_id > top_word) {
+                /// cout<<"new word "<<word_id<<" "<<top_word<<endl;
+                // build basic bitmaps for the next word
+                resetBitmap(bm);
+                start_id = word_id * 2;
+                /// if (start_id == 31722552) cout<<"word id build "<<word_id<<" "<<top_word<<endl;
+                build_bitmap_basic();
+                /// cout<<"basic created "<<word_id<<endl;
+            }
+            get_bitmap_lbracket(bm);
+        ///     bitset<64> tempbit4(bm.lbracketbit);
+        ///     cout<<"left bit0 "<<tempbit4<<endl;
+            IntervalInfo interval;
+            if (first_interval == false) {
+                if (new_word == true) {
+                    // interval.intervalbit = 0;
+                    // interval.is_complete = true;
+                    interval = get_interval_new_word(bm.lbracketbit);
+                    //bitset<64> tempbit(interval.intervalbit);
+                    //cout<<"interval "<<tempbit<<" "<<interval.is_complete<<" "<<substring_200(mRecord, word_id * 64, word_id * 64 + 64)<<endl;
+                } else {
+                interval = get_interval(pos, bm.lbracketbit);
+                    // first_interval = true;
+                } 
+                first_interval = true;
+            } else { //if (new_word == false) {
+                interval = next_interval(bm.lbracketbit);
+            } /*else {
+                interval = get_interval_new_word(bm.lbracketbit);
+                new_word = false; 
+            }*/
+           /* bitset<64> tempbit3(bm.lbracketbit);
+            cout<<"left bit "<<tempbit3<<endl;
+            bitset<64> tempbit(interval.intervalbit);
+            cout<<"interval "<<tempbit<<" "<<interval.is_complete<<" "<<substring_200(mRecord, word_id * 64, word_id * 64 + 64)<<endl;
+          */get_bitmap_rbracket(bm);
+            unsigned long bitmap_rbracket = bm.rbracketbit & interval.intervalbit;
+            bitset<64> tempbit1(bm.rbracketbit);
+          ///  cout<<"right bit "<<tempbit1<<endl;
+            num_close = __builtin_popcountl(bitmap_rbracket);
+            if (num_close < num_open) {
+                if (interval.is_complete == true) {
+                    num_open = num_open - num_close + 1;
+                    break;
+                } else {
+                    num_open = num_open - num_close;
+                }
+            } else {  // results found
+                pos = get_position(bitmap_rbracket, num_open);  //bm.rbracebit
+                return;
+            }
+            // interval is incomplete in the current word
+            ++word_id;
+            // ++start_id;
+            first_interval = false;
+            //relevant_pos = 0;
+            new_word = true;
+            ///cout<<"new word "<<word_id<<" "<<num_open<<" "<<num_close<<" "<<mNumWords<<endl;
+        }
+    }
+}
+
+__attribute__((always_inline)) void StreamProcessor::skipFollowingAttributes(long& pos, bitmap& bm) {
+    int num_open = 1;
+    int num_close = 0;
+    long word_id = pos / 64;
+    bool first_interval = false;
+    bool new_word = false;
+    while (true) {
+        while (word_id < mNumWords) {
+            if (word_id > top_word) {
+                resetBitmap(bm);
+                start_id = word_id * 2;
+                build_bitmap_basic();
+            } 
+            get_bitmap_lbrace(bm);
+            IntervalInfo interval;
+            if (first_interval == false) {
+                if (new_word == true) {
+                    interval = get_interval_new_word(bm.lbracebit);
+                } else {
+                    interval = get_interval(pos, bm.lbracebit);
+                }
+                first_interval = true;
+            } else {
+                interval = next_interval(bm.lbracebit);
+            }
+            get_bitmap_rbrace(bm);
+            unsigned long bitmap_rbrace = bm.rbracebit & interval.intervalbit;
+            num_close = __builtin_popcountl(bitmap_rbrace);
+            if (num_close < num_open) {
+                if (interval.is_complete == true) {
+                    num_open = num_open - num_close + 1;
+                    break;
+                } else {
+                    num_open = num_open - num_close;
+                }
+            } else {  // results found
+                pos = get_position(bitmap_rbrace, num_open);  //bm.rbracebit
+                return;
+            }
+            // interval is incomplete in the current word
+            ++word_id;
+            first_interval = false;
+            new_word = true;
+        }
+    }
+}
+
+__attribute__((always_inline)) void StreamProcessor::skipFollowingElements(long& pos, bitmap& bm) {
+    int num_open = 1;
+    int num_close = 0;
+    long word_id = pos / 64;
+    bool first_interval = false;
+    bool new_word = false;
+    while (true) {
+        while (word_id < mNumWords) {
+            if (word_id > top_word) {
+                // build basic bitmaps for the next word
+                resetBitmap(bm);
+                start_id = word_id * 2;
+                build_bitmap_basic();
+            }
+            get_bitmap_lbracket(bm);
+            IntervalInfo interval;
+            if (first_interval == false) {
+                if (new_word == true) {
+                    interval = get_interval_new_word(bm.lbracketbit);
+                } else {
+                    interval = get_interval(pos, bm.lbracketbit);
+                }
+                first_interval = true;
+            } else {
+                interval = next_interval(bm.lbracketbit);
+            }
+            get_bitmap_rbracket(bm);
+            unsigned long bitmap_rbracket = bm.rbracketbit & interval.intervalbit;
+            num_close = __builtin_popcountl(bitmap_rbracket);
+            if (num_close < num_open) {
+                if (interval.is_complete == true) {
+                    num_open = num_open - num_close + 1;
+                    break;
+                } else {
+                    num_open = num_open - num_close;
+                }
+            } else {  // results found
+                pos = get_position(bitmap_rbracket, num_open);  //bm.rbracebit
+                return;
+            }
+            // interval is incomplete in the current word
+            ++word_id;
+            first_interval = false;
+            new_word = true;
+        }
+    }
+}
+
+__attribute__((always_inline)) void StreamProcessor::skipPrimitiveObj(long& pos, bitmap& bm) {
+    long word_id = pos / 64;
+    bool first_interval = false;
+    /// int relevant_pos = pos % 64;
+    bool new_word = false;
+    // cout<<"*** word id "<<word_id<<" "<<start_id<<endl;
+    // in general case it can only pass one word
+    /*if (start_id > 0 && start_id != 2 * word_id + 1) {
+        cout<<"*** special word id "<<word_id<<" "<<start_id<<endl; 
+        ++start_id;
+    }*/
+    while (word_id < mNumWords) {
+        if (word_id > top_word) {
+            // build basic bitmaps for the next word
+            resetBitmap(bm);
+            start_id = word_id * 2;
+            /// if (start_id == 31722552) cout<<"word id build primitive "<<word_id<<" "<<top_word<<endl;
+            build_bitmap_basic();
+            // if (word_id == 15861276) cout<<"lbrace flag "<<bm.has_lbrace<<endl;
+        }
+        get_bitmap_comma(bm);
+        IntervalInfo interval;
+        if (first_interval == false) {
+            if (new_word == true) {
+                interval = get_interval_new_word(bm.commabit);
+            } else {
+            ///    bitset<64> tempbit1(bm.commabit);
+             ///   cout<<"prior tempbit "<<tempbit1<<" "<<substring_200(mRecord, word_id * 64, word_id * 64 + 10)<<endl;
+                interval = get_interval(pos, bm.commabit);
+           ///     bitset<64> tempbit(bm.commabit);
+           ///     cout<<"intialization "<<pos<<" "<<relevant_pos<<" "<<mRecord[pos]<<" "<<tempbit<<" "<<substring_200(mRecord, pos - relevant_pos, pos-relevant_pos + 10)<<endl;
+           ///     unsigned long test1 = (1UL << (pos % 64));
+            ///    bitset<64> tempbit2(test1);
+            ///    cout<<"intialization1 "<<tempbit2<<endl;
+            }
+            first_interval = true;
+        } else {
+            interval = next_interval(bm.commabit);
+        }
+        get_bitmap_rbrace(bm);
+        unsigned long bitmap_rbrace = bm.rbracebit & interval.intervalbit;
+        if (bitmap_rbrace) {
+            // end of object
+            pos = get_position(bitmap_rbrace, 1) - 1;
+            return;
+        }
+        if (interval.is_complete) {
+            // position before comma
+            ///if (interval.intervalbit == 0) 
+                ///interval.intervalbit = 0UL;
+            pos = interval_end(interval.intervalbit);
+            /// if (interval.intervalbit == 0 && pos % 64 == 0) pos = pos - 1;
+            pos = pos - 1;
+            /// bitset<64> tempbit(interval.intervalbit);
+            /// unsigned long test = interval.intervalbit;
+         //////   if (word_id == 15861276) cout<<"*** lbrace flag "<<bm.has_lbrace<<" "<<substring_200(mRecord, pos, pos + 64)<<endl;
+            ///cout<<"word id "<<top_word<<" offset "<<__builtin_clzll(test)<<endl;
+            /// cout<<"successfully skip an object primitive "<<" "<<(interval.intervalbit == 0)<<" "<<__builtin_clzll(test)<<" "<<word_id<<" "<<pos<<" "<<relevant_pos<<" "<<mRecord[pos]<<" "<<substring_200(mRecord, pos - 5, pos + 1)<<" "<<tempbit<<" "<<endl;
+            return;
+        } 
+        // interval is incomplete in the current word
+        ++word_id;
+        // ++start_id;
+        first_interval = false;
+        //relevant_pos = 0;
+        new_word = true;
+    }  
+}
+
+__attribute__((always_inline)) int StreamProcessor::skipPrimitiveAry(long& pos, bitmap& bm) {
+    long word_id = pos / 64;
+    bool first_interval = false;
+    // int relevant_pos = pos % 64;
+    bool new_word = false;
+    while (word_id < mNumWords) {
+        if (word_id > top_word) {
+            // build basic bitmaps for the next word
+            resetBitmap(bm);
+            start_id = word_id * 2;
+            build_bitmap_basic();
+        }
+        get_bitmap_comma(bm);
+        IntervalInfo interval;
+        if (first_interval == false) {
+            if (new_word == true) {
+                interval = get_interval_new_word(bm.commabit);
+            } else {
+                interval = get_interval(pos, bm.commabit);
+            }
+            first_interval = true;
+        } else {
+            interval = next_interval(bm.commabit);
+        }
+        get_bitmap_rbracket(bm);
+        unsigned long bitmap_rbracket = bm.rbracketbit & interval.intervalbit;
+        if (bitmap_rbracket) {
+            //TODO: make the corresponding changes inside object & skip elements in range
+            // end of array
+            pos = get_position(bitmap_rbracket, 1); // - 1;
+            /// long temp_pos = get_position(bitmap_rbracket, 1);
+            /// cout<<"end of array "<<substring_200(mRecord, temp_pos, pos + 64)<<endl;
+            return ARRAY_END;
+        }
+        if (interval.is_complete) {
+            // position before comma
+            pos = interval_end(interval.intervalbit);
+            /// if (interval.intervalbit == 0 && pos % 64 == 0) pos = pos - 1;
+            pos = pos - 1;
+            // cout<<"ending position of output array "<<substring_200(mRecord, pos, pos + 64)<<endl;
+            return SUCCESS;
+        }
+        // interval is incomplete in the current word
+        ++word_id;
+        // ++start_id;
+        first_interval = false;
+        // relevant_pos = 0;
+        new_word = true;
+    }
+}
+
+__attribute__((always_inline)) int StreamProcessor::skipPrimElements(long& pos, bitmap& bm) {
+    long word_id = pos / 64;
+    // bool first_interval = false;
+    bool new_word = false;
+    while (word_id < mNumWords) {
+        if (word_id > top_word) {
+            // build basic bitmaps for the next word
+            resetBitmap(bm);
+            start_id = word_id * 2;
+            build_bitmap_basic();
+        }
+        get_bitmap_lbrace(bm);
+        get_bitmap_lbracket(bm);
+        unsigned long bitmap_bracket = bm.lbracebit | bm.lbracketbit;
+        IntervalInfo interval;
+        /// if (first_interval == false) {
+            if (new_word == true) {
+                interval = get_interval_new_word(bitmap_bracket);
+            } else {
+                interval = get_interval(pos, bitmap_bracket);
+            }
+            /// first_interval = true;
+        ///} else {
+        ///    interval = next_interval(bitmap_bracket);
+        ///}
+        get_bitmap_rbracket(bm);
+        unsigned long bitmap_rbracket = bm.rbracketbit & interval.intervalbit;
+        if (bitmap_rbracket) {
+            pos = get_position(bitmap_rbracket, 1);
+            return ARRAY_END;
+        }
+        if (interval.is_complete) {
+            pos = interval_end(interval.intervalbit);
+            //  find cloest colon
+            /// while (mRecord[pos] != ':') --pos;
+            return SUCCESS;
+        }
+        ++word_id;
+        /// first_interval = false;
+        new_word = true;
+    }
+}
+
+__attribute__((always_inline)) int StreamProcessor::goToObjElem(long& pos, bitmap& bm) {
+    do {
+        // TODO: remove the temporarliy added code
+        if (mRecord[pos] != '{' || mRecord[pos] != '[') {
+        int result = skipPrimElements(pos, bm);
+        if (result == ARRAY_END) {
+            return result;
+        }
+        }
+        int element_type = getElementType(pos);
+        if (element_type == OBJECT) {
+            return SUCCESS;
+        }
+        skipArray(pos, bm);
+    } while (hasMoreElements(pos));
+    return OBJECT_END;
+}
+
+__attribute__((always_inline)) int StreamProcessor::goToAryElem(long& pos, bitmap& bm) {
+    do {
+        /// cout<<"pos needs to skip "<<substring_200(mRecord, pos, pos + 64)<<endl;
+        // TODO: remove the temporarliy added code
+        if (mRecord[pos] != '{' || mRecord[pos] != '[') {
+        /// cout<<"skip prim elements "<<substring_200(mRecord, pos, pos + 64)<<endl;
+        int result = skipPrimElements(pos, bm);
+        /// cout<<"check skip prim elements result "<<result<<endl;
+        if (result == ARRAY_END) {
+            return result;
+        }
+        }
+        int element_type = getElementType(pos);
+        /// cout<<"next element type "<<element_type<<" "<<substring_200(mRecord, pos, pos + 64)<<endl;
+        if (element_type == ARRAY) {
+            return SUCCESS;
+        }
+        skipObject(pos, bm);
+    } while (hasMoreElements(pos));
+    return OBJECT_END;
+}
+
+__attribute__((always_inline)) int StreamProcessor::skipPrimPairs(long& pos, bitmap& bm) {
+    long word_id = pos / 64;
+    // bool first_interval = false;
+    bool new_word = false;
+    while (word_id < mNumWords) {
+        if (word_id > top_word) {
+            // build basic bitmaps for the next word
+            resetBitmap(bm);
+            start_id = word_id * 2;
+            build_bitmap_basic();
+        }
+        get_bitmap_lbrace(bm);
+        get_bitmap_lbracket(bm);
+        unsigned long bitmap_bracket = bm.lbracebit | bm.lbracketbit; 
+        IntervalInfo interval;
+        /// if (first_interval == false) {
+            if (new_word == true) {
+                interval = get_interval_new_word(bitmap_bracket);
+            } else {
+                interval = get_interval(pos, bitmap_bracket);
+            }
+            /// first_interval = true;
+        ///} else {
+        ///    interval = next_interval(bitmap_bracket);
+        ///}
+        get_bitmap_rbrace(bm);
+        unsigned long bitmap_rbrace = bm.rbracebit & interval.intervalbit;
+        if (bitmap_rbrace) {
+            pos = get_position(bitmap_rbrace, 1);
+            return OBJECT_END;
+        }
+        if (interval.is_complete) {
+            pos = interval_end(interval.intervalbit);
+            //  find cloest colon
+            /// while (mRecord[pos] != ':') --pos;
+            return SUCCESS;
+        }
+        ++word_id;
+        /// first_interval = false;
+        new_word = true; 
+    }
+}
+
+__attribute__((always_inline)) int StreamProcessor::goToObjAttr(long& pos, bitmap& bm) {
+    do {
+        int result = skipPrimPairs(pos, bm);
+        if (result == OBJECT_END) {
+            return result;
+        }
+        int attribute_type = getAttributeType(pos);
+        if (attribute_type == OBJECT) {
+            return SUCCESS;
+        }
+        skipArray(pos, bm);
+    } while (hasMoreAttributes(pos));
+    return OBJECT_END;
+}
+
+__attribute__((always_inline)) int StreamProcessor::goToAryAttr(long& pos, bitmap& bm) {
+    do {
+        int result = skipPrimPairs(pos, bm);
+        if (result == OBJECT_END) {
+            return result;
+        }
+        int attribute_type = getAttributeType(pos);
+        if (attribute_type == ARRAY) {
+            return SUCCESS;
+        }
+        skipObject(pos, bm);
+    } while (hasMoreAttributes(pos));
+    return OBJECT_END;
+}
+
+__attribute__((always_inline)) int StreamProcessor::goToPrimAttr(long& pos, bitmap& bm) {
+    long word_id = pos / 64;
+    bool first_interval = false;
+    bool new_word = false;
+    while (true) {
+        while (word_id < mNumWords) {
+            if (word_id > top_word) {
+                /// cout<<"build basic "<<word_id<<" "<<top_word<<endl;
+                // build basic bitmaps for the next word
+                resetBitmap(bm);
+                start_id = word_id * 2;
+                build_bitmap_basic();
+            }
+            get_bitmap_colon(bm);
+            IntervalInfo interval;
+            if (first_interval == false) {
+                if (new_word == true) {
+                    /// cout<<"get interval new word "<<pos<<endl;
+                    interval = get_interval_new_word(bm.colonbit);
+                    new_word = false;
+                } else {
+                    /// cout<<"get interval "<<pos<<endl;
+                    interval = get_interval(pos, bm.colonbit);
+                }
+                first_interval = true;
+            } else {
+                /// cout<<"next interval "<<pos<<endl;
+                interval = next_interval(bm.colonbit);
+            }
+            //bitset<64> tempbit(bm.colonbit);
+            //bitset<64> tempbit1(interval.intervalbit);
+            /// cout<<"colon bitmap "<<tempbit<<" "<<tempbit1<<endl;
+            get_bitmap_rbrace(bm);
+            unsigned long bitmap_rbrace = bm.rbracebit & interval.intervalbit;
+            if (bitmap_rbrace > 0) {
+                // object ends
+                pos = get_position(bitmap_rbrace, 1);
+                ///// cout<<"object end "<<substring_200(mRecord, pos , pos + 64)<<endl;
+                return OBJECT_END;
+            }
+            if (interval.is_complete) {
+                pos = interval_end(interval.intervalbit);
+                /// if (interval.intervalbit == 0 && pos % 64 == 0) pos = pos - 1;
+                pos += 1;
+                int type = getAttributeType(pos);
+                if (type == OBJECT) {
+                    //// cout<<"before skipping an object "<<substring_200(mRecord, pos, pos + 64)<<" "<<pos<<endl;
+                    skipObject(pos, bm);
+                    word_id = pos / 64;  // update word id 
+                    first_interval = false;
+                    //// cout<<"after skipping an object "<<substring_200(mRecord, pos, pos + 64)<<" "<<pos<<endl;
+                }
+                else if (type == ARRAY) {
+                    ///  cout<<"before skipping an array "<<substring_200(mRecord, pos, pos + 64)<<" "<<pos<<endl;
+                    skipArray(pos, bm);
+                    word_id = pos / 64; // update word id 
+                    first_interval = false;
+                    /// cout<<"after skipping an array "<<substring_200(mRecord, pos, pos + 64)<<" "<<pos<<endl;
+                }
+                else {
+                    /// cout<<"word id "<<word_id<<" "<<top_word<<endl;
+                    /////  cout<<"successfully skip to a primitive "<<pos<<" "<<mRecord[pos]<<" "<<substring_200(mRecord, pos, pos + 64)<<endl;
+                    return SUCCESS;
+                }
+                break;
+            }
+            ++word_id;
+            //++start_id;
+            first_interval = false;
+            new_word = true;
+        }
+    }
+}
+
+__attribute__((always_inline)) JumpInfo StreamProcessor::skipPrimElemInRange(long& pos, int num_elements, bitmap& bm) {
+    int word_id = pos / 64;
+    bool new_word = false;
+    int num_comma = 0;
+    while (word_id < mNumWords) {
+        if (word_id > top_word) {
+            // build basic bitmaps for the next word
+            resetBitmap(bm);
+            start_id = word_id * 2;
+            build_bitmap_basic();
+        }
+        get_bitmap_lbrace(bm);
+        get_bitmap_lbracket(bm);
+        unsigned long bitmap_bracket = bm.lbracebit | bm.lbracketbit;
+        IntervalInfo interval;
+        if (new_word == true) {
+            interval = get_interval_new_word(bitmap_bracket);
+        } else {
+            interval = get_interval(pos, bitmap_bracket);
+        }
+        build_bitmap_rbracket(bm);
+        unsigned long bitmap_rbracket = bm.rbracketbit & interval.intervalbit;
+        if (bitmap_rbracket) {
+            // end of array
+            pos = get_position(bitmap_rbracket, 1);
+            JumpInfo ji(ARRAY_END);
+            return ji;
+        }
+        get_bitmap_comma(bm);
+        unsigned long bitmap_comma = bm.commabit & interval.intervalbit;
+        num_comma = num_comma +__builtin_popcountl(bitmap_comma);
+        if (num_comma >= num_elements) {
+            pos = get_position(bitmap_comma, num_elements);
+            JumpInfo ji(SUCCESS);
+            return ji;
+        } else {
+            if (interval.is_complete) {
+                pos = interval_end(interval.intervalbit);// + 1;
+                JumpInfo ji(PARTIAL_SKIP, num_comma);
+                return ji;
+            }
+            num_elements -= num_comma;
+        }
+        // interval is incomplete in the current word
+        ++word_id;
+        //++start_id;
+        new_word = true;
+    }
+}
+
+// TODO: when jumping operation happens, returned position needs to be consistent with others
+__attribute__((always_inline)) JumpInfo StreamProcessor::skipPrimElemInRangeEPos(long& pos, int num_elements, bitmap& bm) {
+    int word_id = pos / 64;
+    bool new_word = false;
+    int num_comma = 0;
+    bool flag = false;
+    if (mRecord[pos] != '"') flag = true;
+    while (word_id < mNumWords) {
+        if (word_id > top_word) {
+            // build basic bitmaps for the next word
+            resetBitmap(bm);
+            start_id = word_id * 2;
+            build_bitmap_basic();
+        }
+        get_bitmap_lbrace(bm);
+        get_bitmap_lbracket(bm);
+        // build_bitmap_rbracket(bm);
+        unsigned long bitmap_bracket = bm.lbracebit | bm.lbracketbit;// | bm.rbracketbit;
+        IntervalInfo interval;
+        if (new_word == true) {
+            interval = get_interval_new_word(bitmap_bracket);
+        } else {
+            /// if (flag == true) cout<<"get interval from pos "<<substring_200(mRecord, pos, pos + 100)<<" "<<(pos % 64)<<endl;
+            interval = get_interval(pos, bitmap_bracket);
+            /// bitset<64> tempbit(interval.intervalbit);
+            /// if (flag == true) cout<<"get interval bit "<<tempbit<<endl;
+        }
+        build_bitmap_rbracket(bm);
+        unsigned long bitmap_rbracket = bm.rbracketbit & interval.intervalbit;
+        /*if (bitmap_rbracket) {
+            // end of array
+            pos = get_position(bitmap_rbracket, 1);
+            JumpInfo ji(ARRAY_END);
+            return ji;
+        }*/
+        get_bitmap_comma(bm);
+        unsigned long bitmap_comma = bm.commabit & interval.intervalbit;
+        if (bitmap_rbracket) {
+            bitmap_comma = bitmap_comma & (bitmap_rbracket ^ (bitmap_rbracket - 1));
+        } /*else {
+            bitmap_comma = bm.commabit & interval.intervalbit; 
+        }*/
+        num_comma = num_comma +__builtin_popcountl(bitmap_comma);
+        if (num_comma >= num_elements) {
+            long temp_pos = word_id * 64 + __builtin_ctzll(bitmap_comma);
+            /// if (flag == true) cout<<"previous pos "<<pos<<" "<<word_id<<" "<<top_word<<" "<<temp_pos<<" "<<bitmap_rbracket<<endl;
+            pos = get_position(bitmap_comma, num_elements);
+            /// if (flag == true) cout<<"after pos "<<pos<<endl;
+            JumpInfo ji(SUCCESS);
+            /// if (flag == true) cout<<"success "<<substring_200(mRecord, pos, pos + 100)<<endl;
+            return ji; 
+        } 
+        if (bitmap_rbracket) {
+            // end of array
+            pos = get_position(bitmap_rbracket, 1);
+            JumpInfo ji(ARRAY_END);
+            return ji;
+        } else {
+            /*long temp_pos = get_position(bitmap_bracket, 1);
+            /// cout<<"end "<<mRecord[temp_pos]<<endl;
+            if (mRecord[temp_pos] == ']') {
+                 
+                 pos = temp_pos;
+                 JumpInfo ji(ARRAY_END);
+                 return ji; 
+            }*/
+            if (interval.is_complete) {
+                pos = interval_end(interval.intervalbit);// + 1;
+                JumpInfo ji(PARTIAL_SKIP, num_comma);
+                return ji;
+            }
+            num_elements -= num_comma;
+        }
+        // interval is incomplete in the current word
+        ++word_id;
+        //++start_id;
+        new_word = true;
+    } 
+}
+
+__attribute__((always_inline)) int StreamProcessor::skipElements(long& pos, int num_elements, bitmap& bm) {
+    while (num_elements > 0) {
+        if (!hasMoreElements(pos)) {
+            return ARRAY_END;
+        }
+        /// cout<<"skip elements before inside "<<substring_200(mRecord, pos, pos + 200)<<" "<<num_elements<<endl; 
+        int element_type = getElementType(pos);
+        int result = 0;
+        switch(element_type) {
+            case PRIMITIVE: {
+                bool flag = false;
+                /*if (mRecord[pos] != '"') {
+                    cout<<"skip primitives "<<num_elements<<" "<<substring_200(mRecord, pos, pos + 200)<<endl;
+                    flag = true;
+                    long word_id = pos / 64;
+                    cout<<"word id "<<word_id<<" "<<top_word<<endl;
+                }*/
+                JumpInfo res = skipPrimElemInRangeEPos(pos, num_elements, bm);
+                ///if (flag == true)
+                ///    cout<<"after skipping primitives "<<num_elements<<" "<<substring_200(mRecord, pos, pos + 200)<<endl; 
+                if (res.status == ARRAY_END || res.status == SUCCESS) {
+                    // cout<<"skip to array end "<<endl;
+                    return res.status;
+                }
+                if (res.status == PARTIAL_SKIP) {
+                    num_elements = num_elements - res.num_comma + 1;
+                }
+                /// skipPrimitiveAry(pos, bm);
+                /*int result = skipPrimitiveAry(pos, bm);
+                if (result == ARRAY_END)
+                    return ARRAY_END;*/
+                break;
+            }
+            case OBJECT:
+                skipObject(pos, bm);
+                break;
+            case ARRAY:
+                skipArray(pos, bm);
+                break;
+        }
+        --num_elements;
+    }
+    return SUCCESS;
+}
+
+__attribute__((always_inline)) int StreamProcessor::goToObjElemInRange(long& pos, int& num_elements, bitmap& bm) {
+     do {
+        int element_type = getElementType(pos);
+        int result = 0;
+        switch(element_type) {
+            case PRIMITIVE: {
+                JumpInfo res = skipPrimElemInRange(pos, num_elements, bm);
+                if (res.status == ARRAY_END) {
+                    return res.status;
+                }
+                if (res.status == SUCCESS) {
+                    return RANGE_END;
+                }
+                if (res.status == PARTIAL_SKIP) {
+                    num_elements = num_elements - res.num_comma + 1;
+                }
+                break;
+            }
+            case OBJECT:
+                return SUCCESS;
+                // break;
+            case ARRAY:
+                skipArray(pos, bm);
+                break;
+        }
+        --num_elements;
+        if (!hasMoreElements(pos)) {
+            return ARRAY_END;
+        }
+    } while (num_elements > 0);
+    return RANGE_END;
+}
+
+__attribute__((always_inline)) int StreamProcessor::goToAryElemInRange(long& pos, int& num_elements, bitmap& bm) {
+    do {
+        int element_type = getElementType(pos);
+        int result = 0;
+        switch(element_type) {
+            case PRIMITIVE: {
+                JumpInfo res = skipPrimElemInRange(pos, num_elements, bm);
+                if (res.status == ARRAY_END) {
+                    return res.status;
+                }
+                if (res.status == SUCCESS) {
+                    return RANGE_END;
+                }
+                if (res.status == PARTIAL_SKIP) {
+                    num_elements = num_elements - res.num_comma + 1;
+                }
+                break;
+            }
+            case OBJECT:
+                skipObject(pos, bm);
+                break;
+            case ARRAY:
+                ///skipArray(pos, bm);
+                ///break;
+                return SUCCESS;
+        }
+        --num_elements;
+        if (!hasMoreElements(pos)) {
+            return ARRAY_END;
+        }
+    } while (num_elements > 0);
+    return RANGE_END;
+}
+
+__attribute__((always_inline)) int StreamProcessor::goToPrimElemInRange(long& pos, int& num_elements, bitmap& bm) {
+    do {
+        int element_type = getElementType(pos);
+        int result = 0;
+        switch(element_type) {
+            case PRIMITIVE: {
+                return SUCCESS;
+            }
+            case OBJECT:
+                skipObject(pos, bm);
+                break;
+            case ARRAY:
+                skipArray(pos, bm);
+                ///break;
+                /// return SUCCESS;
+        }
+        --num_elements;
+        if (!hasMoreElements(pos)) {
+            return ARRAY_END;
+        }
+    } while (num_elements > 0);
+    return RANGE_END;
+}
+
+// TODO: check whether pos after using skippers points to the correct position
+// e.g. pos = get_position() - 1 when reaching to end of object/array
+__attribute__((always_inline)) bool StreamProcessor::hasMoreElements(long& pos) {
+    while (mRecord[pos] == ' ' || mRecord[pos] == '\n' || mRecord[pos] == '\r') ++pos;
+    ++pos;
+    while (mRecord[pos] == ' ' || mRecord[pos] == '\n' || mRecord[pos] == '\r') {
+        ++pos;
+    } 
+    if (mRecord[pos] == ']') {
+        return false;
+    }
+    if (mRecord[pos] == ',') ++pos;
+    while (mRecord[pos] == ' ' || mRecord[pos] == '\n' || mRecord[pos] == '\r') ++pos;
+    return true;
+}
+
+__attribute__((always_inline)) int StreamProcessor::getElementType(long& pos) {
+    while (mRecord[pos] == ' ') ++pos;
+    if (mRecord[pos] == '{') return OBJECT;
+    if (mRecord[pos] == '[') return ARRAY;
+    return PRIMITIVE;
+}
+
+__attribute__((always_inline)) int StreamProcessor::goToPrimElem(long& pos, bitmap& bm) {
+    do {
+        int element_type = getElementType(pos);
+        switch (element_type) {
+            case PRIMITIVE:
+                return SUCCESS;
+            case OBJECT:
+                skipObject(pos, bm);
+                break;
+            case ARRAY:
+                skipArray(pos, bm);
+        }
+    } while (hasMoreElements(pos));
+    return ARRAY_END;
+}
+
+// TODO: check whether pos after using skippers points to the correct position
+// e.g. pos = get_position() - 1 when reaching to end of object/array
+__attribute__((always_inline)) bool StreamProcessor::hasMoreAttributes(long& pos) {
+    // if current character is blank, skip this character until meeting a non-blank character
+    while (mRecord[pos] == ' ') ++pos;
+    ++pos;
+    while (mRecord[pos] == ' ') {
+        ++pos;
+    }
+    if (mRecord[pos] == '}') {
+        return false;
+    }
+    if (mRecord[pos] == ',') ++pos;
+    while (mRecord[pos] == ' ' || mRecord[pos] == '\n') ++pos; 
+    return true;
+}
+
+__attribute__((always_inline)) int StreamProcessor::getAttributeType(long& pos) {
+    while (mRecord[pos] == ' ') ++pos;
+    if (mRecord[pos] == '{') return OBJECT;
+    if (mRecord[pos] == '[') return ARRAY;
+    return PRIMITIVE;
+}
+
+void StreamProcessor::object(long& pos, bitmap& bm) {
+    int attribute_type = qa.getExpectedTypeInObj();
+    while (hasMoreAttributes(pos)) {
+        /// cout<<"attribute pos "<<substring_200(mRecord, pos, pos + 100)<<endl;
+        int result = 0;
+        int next_state = 0;
+        int element_type = attribute_type;
+        switch (attribute_type) {
+            case OBJECT:
+                result = goToObjAttr(pos, bm);
+                break;
+            case ARRAY:
+                result = goToAryAttr(pos, bm);
+                break;
+            case PRIMITIVE: {
+                 ///cout<<"before going next primitive "<<qa.mCurState<<" "<<substring_200(mRecord, pos, pos + 100)<<endl;
+                /// result = goToPrimAttr(pos, bm);
+                long st = pos;
+                // while (mRecord[st] != ':') --st;
+                while (mRecord[st] != '"') ++st;
+                long ed = st + 1;
+                while (mRecord[ed] != '"') ++ed;
+                int key_len = ed - st - 1;
+                memcpy(mKey, mRecord + st + 1, key_len);
+                mKey[key_len] = '\0';
+                /// cout<<"key "<<mKey<<" len "<<key_len<<" "<<pos<<endl;
+                next_state = qa.getNextState(mRecord + st + 1, key_len);
+                while (mRecord[ed] != ':') ++ed; 
+                pos = ed + 1;
+                element_type = getElementType(pos);
+                ///cout<<"before next primitive "<<substring_200(mRecord, pos, pos +100)<<endl;
+            }
+        }
+        if (result == OBJECT_END)
+            return;
+        // int next_state = 0;
+        /*if (attribute_type != PRIMITIVE) {
+        long st = 0;
+        long ed = 0;
+        long cur_pos = pos;
+        // find the previous colon
+        /// cout<<qa.mCurState<<" "<<attribute_type<<" before colon check "<<mRecord[cur_pos]<<" "<<substring_200(mRecord, cur_pos, cur_pos + 50)<<endl;
+        while (mRecord[cur_pos] != ':') --cur_pos; 
+        /// cout<<"colon check "<<mRecord[cur_pos]<<" "<<substring_200(mRecord, cur_pos, cur_pos + 50)<<endl;
+        findFieldQuotePos2(cur_pos, st, ed);
+        int key_len = ed - st - 1;
+        next_state = qa.getNextState(mRecord + st + 1, key_len, KEY);
+        } */
+        if (attribute_type != PRIMITIVE) {
+            long st = pos;
+            while (mRecord[st] != ':') --st;
+            while (mRecord[st] != '"') --st;
+            long ed = st - 1;
+            while (mRecord[ed] != '"') --ed;
+            int key_len = st - ed - 1;
+            memcpy(mKey, mRecord + ed + 1, key_len);
+            mKey[key_len] = '\0';
+            /// cout<<"key "<<mKey<<" len "<<key_len<<" "<<pos<<endl;
+            next_state = qa.getNextState(mRecord + ed + 1, key_len);
+        }
+         //memcpy(mKey, mRecord + st + 1, key_len);
+        // mKey[key_len] = '\0';
+       /// if (strcmp(mKey, "timestamp_ms") != 0) 
+         ///cout<<"key "<<mKey<<" "<<next_state<<" cur state "<<qa.mCurState<<" "<<attribute_type<<" "<<pos<<endl;
+        /// int element_type = getElementType(pos);
+        /*cout<<"element type "<<element_type<<" "<<substring_200(mRecord, pos, pos + 100)<<endl;
+        if (element_type != attribute_type) {
+            cout<<"ele type "<<element_type<<" "<<attribute_type<<endl;
+        }*/
+        if (next_state == UNMATCHED_STATE) {
+            switch (element_type) {
+                case OBJECT:
+                    skipObject(pos, bm);
+                    break;
+                case ARRAY:
+                    skipArray(pos, bm);
+                    break;
+                case PRIMITIVE: {
+                    ///cout<<"before skipping primitive "<<substring_200(mRecord, pos, pos + 100)<<endl;
+                    skipPrimitiveObj(pos, bm);
+                    //++pos;
+                    /// cout<<"after skipping primitive "<<substring_200(mRecord, pos, pos + 100)<<endl;
+
+                }
+            }
+        } else if (qa.getType(next_state) == OUTPUT_CANDIDATE) { //ACCEPT
+            ++mOutputSize;
+            long start_pos = pos;
+            switch (element_type) {
+                case OBJECT: {
+                    skipObject(pos, bm);
+                    break;
+                }
+                case ARRAY: {
+                    skipArray(pos, bm);
+                    break;
+                }
+                case PRIMITIVE:
+                    skipPrimitiveObj(pos, bm);
+                    ++pos;
+            }
+            long end_pos = pos;
+            long text_length = end_pos - start_pos + 1;
+            memcpy(mText, mRecord + start_pos, text_length);
+            mText[text_length] = '\0';
+            mOutput.append(mText);
+            /// cout<<"text "<<mText<<endl;
+            ///cout<<"going to skip remaining pairs1 "<<substring_200(mRecord, pos, pos + 64)<<endl;
+            if (mRecord[pos] != '}') {
+                if (qa.getStackSize() == 0) return;
+                /// cout<<"prev pos "<<pos<<endl;
+                skipFollowingAttributes(pos, bm);
+                /// cout<<"after pos "<<pos<<endl;
+                // skipObject(pos, bm);
+            }
+            ///cout<<"after skip remaining pairs1 "<<substring_200(mRecord, pos, pos + 64)<<endl;  
+            break;
+        } else {  // in-progress
+            qa.pushStack(next_state);
+            switch (attribute_type) {
+                case OBJECT:
+                    object(pos, bm);
+                    break;
+                case ARRAY:
+                    array(pos, bm);
+                //case PRIMITIVE:
+                //    skipPrimitiveObj(pos, bm);
+            }
+            qa.popStack(); // virtual token "value"
+           /// cout<<"going to skip remaining pairs "<<substring_200(mRecord, pos, pos + 64)<<endl;
+            /// pend_wid = pos;
+            if (qa.getStackSize() == 0) return;
+            skipFollowingAttributes(pos, bm);
+            /// skipObject(pos, bm);
+            /// pend_wid1 = pos;
+            ///cout<<"after after skip remaining pairs "<<substring_200(mRecord, pos, pos + 64)<<" st "<<(pend_wid % 64)<<" ed "<<(pend_wid1 % 64)<<endl;
+            break;
+        }
+    }
+    // if (hasMoreAttributes(pos))
+       // skipObject(pos, bm); 
+}
+
+void StreamProcessor::array(long& pos, bitmap& bm) {
+    ///if (mRecord[pos + 2] == 'n')
+    /// cout<<"process array "<<substring_200(mRecord, pos, pos + 200)<<endl;
+    int next_state = qa.getNextStateNoKey();
+    qa.pushStack(next_state);
+    int element_type = qa.getExpectedTypeInArr();
+    long prev_pos = -1; // only use for debugging
+    bool flag = false;
+    if (qa.hasIndexConstraints()) {
+        int start_idx = qa.mDfa.trans_ele[qa.mCurState - 1].start_idx;
+        int end_idx = qa.mDfa.trans_ele[qa.mCurState - 1].end_idx;
+        /////cout<<"process index constraint "<<start_idx<<" "<<end_idx<<endl;
+        int num_elements = end_idx - start_idx;
+        if (start_idx > 0) {
+            /// if (flag == false) cout<<qa.mCurState<<" jump start index "<<start_idx<<" "<<substring_200(mRecord, pos, pos + 64)<<endl;
+            int result = skipElements(pos, start_idx, bm);
+            if (result == ARRAY_END) {
+                /////cout<<"array end "<<substring_200(mRecord, pos, pos + 64)<<endl;
+                qa.popStack();
+                return; 
+            }
+            /// if(flag == false) cout<<"skip elements before "<<qa.mCurState<<" "<<(start_idx + 1)<<" "<<substring_200(mRecord, pos, pos + 64)<<endl;
+        }
+        while (hasMoreElements(pos) && num_elements > 0) {
+            if (qa.getType(qa.mCurState) == OUTPUT_CANDIDATE) {
+                ++mOutputSize;
+                long start_pos = pos;
+                bool break_while = false;
+                int value_type = element_type;
+                if (element_type == PRIMITIVE) {
+                    /// cout<<"state "<<qa.mCurState<<" "<<substring_200(mRecord, pos, pos + 64)<<endl;
+                    value_type = getElementType(pos); 
+                    /*if (value_type != PRIMITIVE) { 
+                        cout<<"******value type "<<value_type<<" "<<substring_200(mRecord, pos, pos + 64)<<" "<<start_idx<<" "<<num_elements<<endl;
+                        flag = true;
+                        long temp_pos = pos  + 3;
+                        int result = skipElements(temp_pos, start_idx, bm);
+                        cout<<"******check after result "<<qa.mCurState<<" "<<substring_200(mRecord, temp_pos, temp_pos + 64)<<" "<<result<<endl; 
+                    }*/
+                }
+                switch (value_type) {
+                    case OBJECT: {
+                        skipObject(pos, bm);
+                        break;
+                    }
+                    case ARRAY: {
+                        skipArray(pos, bm);
+                        break;
+                    }
+                    case PRIMITIVE: {
+                        int result = skipPrimitiveAry(pos, bm);
+                        if (result == ARRAY_END) {
+                            break_while = true;
+                            /////cout<<"break array "<<substring_200(mRecord, pos, pos + 64)<<" "<<num_elements<<endl;
+                        }
+                    }
+                }
+                long end_pos = pos;
+                long text_length = end_pos - start_pos + 1;
+                memcpy(mText, mRecord + start_pos, text_length);
+                mText[text_length] = '\0';
+                mOutput.append(mText);
+                ///if (mOutputSize == 1) 
+                  ///cout<<mText<<endl;
+                if (break_while) {
+                    if (mRecord[pos] != ']')
+                        skipFollowingElements(pos, bm);
+                        ///skipArray(pos, bm);
+                    break;
+                }
+                --num_elements;
+            } else if (qa.mCurState > 0) {
+                int result; 
+                switch (element_type) {
+                    case OBJECT: {
+                        /// cout<<"prior pos "<<pos<<endl;
+                        result = goToObjElemInRange(pos, num_elements, bm);
+                        /// cout<<"after find object pos "<<pos<<endl;
+                        break;
+                    }
+                    case ARRAY: {
+                        result = goToAryElemInRange(pos, num_elements, bm);
+                        /// break;
+                    }
+                    // impossible
+                    /*case PRIMITIVE: {
+                        /// result = goToPrimElemInRange(pos, num_elements, bm);
+                        result = SUCCESS;
+                    }*/
+                }
+                if (result == SUCCESS) {
+                    /*int value_type = element_type;
+                    if (element_type != PRIMITIVE)
+                        value_type = getElementType(pos);*/
+                    switch (element_type) {
+                        case OBJECT:
+                            prev_pos = pos;
+                            object(pos, bm);
+                            // cout<<"after skip remaining pairs "<<substring_200(mRecord, pos, pos + 64)<<endl;
+                            break;
+                        case ARRAY: {
+                            /// cout<<"going to array with constraint "<<qa.mCurState<<endl;
+                            array(pos, bm);
+                        }
+                    }
+                    --num_elements;
+                } else if (result == ARRAY_END) {
+                    qa.popStack();
+                    return;
+                } else if (result == RANGE_END) {
+                    if (mRecord[pos] != ']') {
+                        if (qa.getStackSize() == 1) return;
+                        /// skipArray(pos, bm);
+                        skipFollowingElements(pos, bm);
+                    }
+                    break;
+                }
+            }
+        }
+        /////cout<<"out of while loop for array "<<mRecord[pos]<<" "<<substring_200(mRecord, pos, pos + 200)<<endl;
+        if (mRecord[pos] != ']') {
+            if (qa.getStackSize() == 1) return;
+            /// skipArray(pos, bm);
+            skipFollowingElements(pos, bm);
+            /////cout<<"after out of while loop for array "<<substring_200(mRecord, pos, pos + 200)<<endl;
+        }
+    } else {
+    /// cout<<"array state "<<next_state<<" element type "<<element_type<<endl;
+    while (hasMoreElements(pos)) {
+        ///cout<<"cur state "<<qa.mCurState<<" next token "<<mRecord[pos]<<" "<<substring_200(mRecord, pos, pos + 64)<<endl;
+        if (qa.getType(qa.mCurState) == OUTPUT_CANDIDATE) {
+            ++mOutputSize;
+            long start_pos = pos;
+            bool break_while = false;
+            int value_type = element_type;
+            if (element_type == PRIMITIVE)
+                value_type = getElementType(pos);
+            ///cout<<"output "<<value_type<<" "<<mRecord[pos]<<" "<<getElementType(pos)<<" "<<substring_200(mRecord, pos, pos + 64)<<endl;
+            switch (value_type) {
+                case OBJECT: {
+                    skipObject(pos, bm);
+                    break;
+                }
+                case ARRAY: {
+                    skipArray(pos, bm);
+                    break;
+                }
+                case PRIMITIVE: {
+                    int result = skipPrimitiveAry(pos, bm);
+                    if (result == ARRAY_END) {
+                        break_while = true;
+                    }
+                }
+            }
+            long end_pos = pos;
+            long text_length = end_pos - start_pos + 1;
+            memcpy(mText, mRecord + start_pos, text_length);
+            mText[text_length] = '\0';
+            mOutput.append(mText);
+            /// if (mOutputSize == 2) cout<<mText<<endl;
+            if (break_while) break;
+        } else if (qa.mCurState > 0) {
+             if (getElementType(pos) != element_type) {
+                /// cout<<"element type "<<element_type<<" "<<getElementType(pos)<<endl;
+                // reset pos for hasMoreElement, TODO: avoid this in the final code
+                /// while (mRecord[pos] == ' ' || mRecord[pos] == '\n' || mRecord[pos] == '\r') --pos;
+                // --pos;
+                int result;
+                switch (element_type) {
+                    case OBJECT:
+                        result = goToObjElem(pos, bm);
+                        break;
+                    case ARRAY:
+                        result = goToAryElem(pos, bm);
+                        //break;
+                    // impossible
+                    /*case PRIMITIVE:
+                        result = goToPrimElem(pos, bm);*/
+                }
+                /// cout<<"after skipping "<<result<<" "<<substring_200(mRecord, pos, pos + 64)<<endl;
+                if (result == ARRAY_END) {
+                    qa.popStack();
+                    return;
+                }
+            }
+            /*if (getElementType(pos) != element_type) {
+                 cout<<"before visit object "<<substring_200(mRecord, prev_pos, prev_pos + 64)<<endl; 
+                cout<<pend_wid<<" before skip remaining pairs "<<substring_200(mRecord, pend_wid, pend_wid + 200)<<endl;
+                cout<<pend_wid1<<" after skip remaining pairs "<<substring_200(mRecord, pend_wid1, pend_wid1 + 200)<<endl;
+                cout<<pos<<" char "<<mRecord[pos]<<"type "<<getElementType(pos)<<" expected type "<<element_type<<" "<<substring_200(mRecord, pos, pos + 64)<<endl;
+            }*/
+            /// cout<<"get the target element "<<element_type<<" "<<substring_200(mRecord, pos, pos + 64)<<endl;
+            switch (element_type) {
+                case OBJECT:
+                    prev_pos = pos;
+                    object(pos, bm);
+                    // cout<<"after skip remaining pairs "<<substring_200(mRecord, pos, pos + 64)<<endl;
+                    break;
+                case ARRAY: {
+                    /// cout<<"going to array "<<qa.mCurState<<" "<<substring_200(mRecord, pos, pos + 100)<<endl;
+                    array(pos, bm);;
+                }
+            } 
+            
+        }
+        /// cout<<"before check hasMoreElement "<<qa.mCurState<<" "<<substring_200(mRecord, pos, pos + 64)<<endl; 
+    }
+    }
+    qa.popStack();
+    /// cout<<"end array "<<qa.mCurState<<endl; 
+}
+
+char StreamProcessor::getNextNonEmptyCharacter(long& pos) {
+    char ch = mRecord[pos];
+    while (mRecord[pos] == ' ') ++pos;
+    return mRecord[pos];
+}
+
+long StreamProcessor::getNumOfOutputs() {
+    return mOutputSize;
+}
+
+string StreamProcessor::run() {
+    long cur_pos = 0;
+    char ch = getNextNonEmptyCharacter(cur_pos);
+    bitmap bm;
+    if (ch == '{')
+        object(cur_pos, bm);
+    else if(ch == '[')
+        array(cur_pos, bm);
+///    cout<<"output size "<<mOutputSize<<endl;
+    return mOutput;
+}

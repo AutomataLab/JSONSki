@@ -1,0 +1,94 @@
+#include "BitmapConstructor.h"
+
+Bitmap* BitmapConstructor::construct(char* record, int thread_num, int level) {
+    Bitmap* bm = NULL;
+    long record_size = strlen(record);
+    if (thread_num == 1) {
+        SerialBitmap* sbm = SerialBitmapConstructor::construct(record, level);
+        bm = sbm;
+        bm->type = SEQUENTIAL;
+    } else {
+        ParallelBitmap* pbm = ParallelBitmapConstructor::construct(record, thread_num, level);
+        bm = pbm;
+        bm->type = PARALLEL;
+    }
+    //cout<<"finish index construction"<<endl;
+    return bm;
+}
+
+/*Bitmap* BitmapConstructor::constructMison(char* record, int num_step, int level) {
+    Bitmap* bm = NULL;
+    long record_size = strlen(record);
+    if (thread_num == 1) {
+        SerialBitmap* sbm = SerialBitmapConstructor::constructMison(record, level);
+        bm = sbm;
+        bm->type = SEQUENTIAL;
+    } else {
+        ParallelBitmap* pbm = ParallelBitmapConstructor::construct(record, thread_num, level);
+        bm = pbm;
+        bm->type = PARALLEL;
+    }
+    cout<<"finish index construction"<<endl;
+    return bm;
+}*/
+
+Bitmap* BitmapConstructor::construct(Records* records, long rec_id, int level, bool support_array) {
+    Bitmap* bm = NULL;
+    SerialBitmap* sbm = SerialBitmapConstructor::construct(records, rec_id, level, support_array);
+    bm = sbm;
+    bm->type = SEQUENTIAL;
+    return bm;
+}
+
+Bitmap* BitmapConstructor::construct(Records* records, long rec_id, int thread_num, int level, bool support_array) {
+    Bitmap* bm = NULL;
+    cout<<"parallel bitmap"<<endl;
+    ParallelBitmap* pbm = ParallelBitmapConstructor::construct(records, rec_id, thread_num, level);
+    bm = pbm;
+    bm->type = PARALLEL;
+    return bm;
+}
+
+Bitmap* BitmapConstructor::constructSbSPisonParallel(Records* records, long rec_id, int thread_num, int level, int num_step, bool support_array) {
+    Bitmap* bm = NULL;
+    ParallelBitmap* pbm = ParallelBitmapConstructor::constructSbSPison(records, rec_id, thread_num, level, num_step);
+    bm = pbm;
+    bm->type = PARALLEL;
+    return bm;
+}
+
+Bitmap* BitmapConstructor::constructMison(Records* records, long rec_id, int num_step, int level, bool support_array) {
+    Bitmap* bm = NULL;
+    SerialBitmap* sbm = SerialBitmapConstructor::constructMison(records, rec_id, num_step, level, support_array);
+    bm = sbm;
+    bm->type = SEQUENTIAL;
+    return bm;
+}
+
+Bitmap* BitmapConstructor::constructMisonPlus(Records* records, long rec_id, int num_step, int level, bool support_array) {
+    Bitmap* bm = NULL;
+    SerialBitmap* sbm = SerialBitmapConstructor::constructMisonPlus(records, rec_id, num_step, level, support_array);
+    bm = sbm;
+    bm->type = SEQUENTIAL;
+    return bm;
+}
+
+Bitmap* BitmapConstructor::constructSbSPison(Records* records, long rec_id, int num_step, int level, bool support_array) {
+    Bitmap* bm = NULL;
+    SerialBitmap* sbm = SerialBitmapConstructor::constructSbSPison(records, rec_id, num_step, level, support_array);
+    bm = sbm;
+    bm->type = SEQUENTIAL;
+    return bm;
+}
+
+BitmapIterator* BitmapConstructor::getIterator(Bitmap* bm) {
+    BitmapIterator* bi = NULL;
+    if (bm->type == SEQUENTIAL) {
+        bi = new SerialBitmapIterator((SerialBitmap*)bm);
+        bi->type = SEQUENTIAL;
+    } else {
+        bi = new ParallelBitmapIterator((ParallelBitmap*)bm);
+        bi->type = PARALLEL;
+    }
+    return bi;
+}

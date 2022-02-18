@@ -1,0 +1,433 @@
+#include "ParallelBitmapConstructor.h"
+#include "SerialBitmap.h"
+
+ParallelBitmap* ParallelBitmapConstructor::mParallelBitmap = NULL;
+pthread_t ParallelBitmapConstructor::mThreads[MAX_THREAD]; 
+int ParallelBitmapConstructor::mThreadArgs[MAX_THREAD];
+
+ParallelBitmap* ParallelBitmapConstructor::construct(char* record, int thread_num, int depth) {
+    struct timeval begin,end;
+    double duration;
+    gettimeofday(&begin,NULL);
+    mParallelBitmap = new ParallelBitmap(record, thread_num, depth);
+    gettimeofday(&end,NULL);
+    duration=1000000*(end.tv_sec-begin.tv_sec)+end.tv_usec-begin.tv_usec;
+    printf("The duration of record splitting is %lf\n",duration/1000000); 
+    //mParallelBitmap->setRecordLength(strlen(record));
+    gettimeofday(&begin,NULL);
+    int mode = mParallelBitmap->parallelMode();
+    if (mode == NONSPECULATIVE) {
+        //cout<<"total number of threads is "<<thread_num<<endl;
+        for (int i = 0; i < thread_num; ++i) {
+            mThreadArgs[i] = i;
+            int rc=pthread_create(&mThreads[i], NULL, &ParallelBitmapConstructor::nonSpecIndexConstruction, &mThreadArgs[i]);
+            if (rc)
+            {
+                cout<<"Thread Error; return code is "<<rc<<endl;
+                mParallelBitmap->mDepth = -1;
+                return NULL;
+            }
+        }
+        for(int i = 0; i < thread_num; ++i)
+        {
+            int rc = pthread_join(mThreads[i], NULL);
+            if (rc)
+            {
+                cout<<"Thread Error; return code is "<<rc<<endl;
+                mParallelBitmap->mDepth = -1;
+                return NULL;
+            }
+        }
+        mParallelBitmap->mergeBitmaps();
+    } else {
+        for (int i = 0; i < thread_num; ++i) {
+            mThreadArgs[i] = i;
+            int rc=pthread_create(&mThreads[i], NULL, &ParallelBitmapConstructor::buildStringMaskBitmap, &mThreadArgs[i]);
+            if (rc)
+            {
+                cout<<"Thread Error; return code is "<<rc<<endl;
+                mParallelBitmap->mDepth = -1;
+                return NULL;
+            }
+        }
+        for(int i = 0; i < thread_num; ++i)
+        {
+            int rc = pthread_join(mThreads[i], NULL);
+            if (rc)
+            {
+                cout<<"Thread Error; return code is "<<rc<<endl;
+                mParallelBitmap->mDepth = -1;
+                return NULL;
+            }
+        }
+        mParallelBitmap->rectifyStringMaskBitmaps();
+        for (int i = 0; i < thread_num; ++i) {
+            mThreadArgs[i] = i;
+            int rc=pthread_create(&mThreads[i], NULL, &ParallelBitmapConstructor::buildLeveledBitmap, &mThreadArgs[i]);
+            if (rc)
+            {
+                cout<<"Thread Error; return code is "<<rc<<endl;
+                mParallelBitmap->mDepth = -1;
+                return NULL;
+            }
+        }
+        for(int i = 0; i < thread_num; ++i)
+        {
+            int rc = pthread_join(mThreads[i], NULL);
+            if (rc)
+            {
+                cout<<"Thread Error; return code is "<<rc<<endl;
+                mParallelBitmap->mDepth = -1;
+                return NULL;
+            }
+        }
+        mParallelBitmap->mergeBitmaps();
+    }
+    gettimeofday(&end,NULL);
+    duration=1000000*(end.tv_sec-begin.tv_sec)+end.tv_usec-begin.tv_usec;
+    //printf("The duration of parallel index construction is %lf\n",duration/1000000);
+    return mParallelBitmap;
+}
+
+ParallelBitmap* ParallelBitmapConstructor::construct(Records* records, long rec_id, int thread_num, int depth) {
+    cout<<"construct "<<endl;
+    struct timeval begin,end;
+    double duration;
+    gettimeofday(&begin,NULL);
+    char* record = records->text + records->rec_start_pos[rec_id];
+    long length = records->rec_length[rec_id];
+    cout<<"construct length "<<length<<" "<<thread_num<<" "<<depth<<endl;
+    mParallelBitmap = new ParallelBitmap(record, length, thread_num, depth);
+    gettimeofday(&end,NULL);
+    duration=1000000*(end.tv_sec-begin.tv_sec)+end.tv_usec-begin.tv_usec;
+    printf("The duration of record splitting is %lf\n",duration/1000000);
+    ///mParallelBitmap->setRecordLength(length);
+    SerialBitmap* bitmap = new SerialBitmap(record, depth, true);
+    bitmap->setRecordLength(length);
+//    struct timeval begin,end;
+//    double duration;
+    gettimeofday(&begin,NULL);
+//    bitmap->indexConstruction();
+
+
+//    mParallelBitmap->mBitmaps[0]->nonSpecIndexConstruction();
+
+    int mode = mParallelBitmap->parallelMode();
+    if (mode == NONSPECULATIVE) {
+        //cout<<"total number of threads is "<<thread_num<<endl;
+       // thread_num = 1;
+        for (int i = 0; i < thread_num; ++i) {
+            mThreadArgs[i] = i;
+            int rc=pthread_create(&mThreads[i], NULL, &ParallelBitmapConstructor::nonSpecIndexConstruction, &mThreadArgs[i]);
+            if (rc)
+            {
+                cout<<"Thread Error; return code is "<<rc<<endl;
+                mParallelBitmap->mDepth = -1;
+                return NULL;
+            }
+        }
+        for(int i = 0; i < thread_num; ++i)
+        {
+            int rc = pthread_join(mThreads[i], NULL);
+            if (rc)
+            {
+                cout<<"Thread Error; return code is "<<rc<<endl;
+                mParallelBitmap->mDepth = -1;
+                return NULL;
+            }
+        }
+        mParallelBitmap->mergeBitmaps();
+    } else {
+        for (int i = 0; i < thread_num; ++i) {
+            mThreadArgs[i] = i;
+            int rc=pthread_create(&mThreads[i], NULL, &ParallelBitmapConstructor::buildStringMaskBitmap, &mThreadArgs[i]);
+            if (rc)
+            {
+                cout<<"Thread Error; return code is "<<rc<<endl;
+                mParallelBitmap->mDepth = -1;
+                return NULL;
+            }
+        }
+        for(int i = 0; i < thread_num; ++i)
+        {
+            int rc = pthread_join(mThreads[i], NULL);
+            if (rc)
+            {
+                cout<<"Thread Error; return code is "<<rc<<endl;
+                mParallelBitmap->mDepth = -1;
+                return NULL;
+            }
+        }
+        mParallelBitmap->rectifyStringMaskBitmaps();
+        for (int i = 0; i < thread_num; ++i) {
+            mThreadArgs[i] = i;
+            int rc=pthread_create(&mThreads[i], NULL, &ParallelBitmapConstructor::buildLeveledBitmap, &mThreadArgs[i]);
+            if (rc)
+            {
+                cout<<"Thread Error; return code is "<<rc<<endl;
+                mParallelBitmap->mDepth = -1;
+                return NULL;
+            }
+        }
+        for(int i = 0; i < thread_num; ++i)
+        {
+            int rc = pthread_join(mThreads[i], NULL);
+            if (rc)
+            {
+                cout<<"Thread Error; return code is "<<rc<<endl;
+                mParallelBitmap->mDepth = -1;
+                return NULL;
+            }
+        }
+        mParallelBitmap->mergeBitmaps();
+    }
+    gettimeofday(&end,NULL);
+    duration=1000000*(end.tv_sec-begin.tv_sec)+end.tv_usec-begin.tv_usec;
+    printf("<<<The duration of parallel index construction is %lf\n",duration/1000000);
+    return mParallelBitmap;
+}
+
+ParallelBitmap* ParallelBitmapConstructor::constructSbSPison(Records* records, long rec_id, int thread_num, int depth, int num_step) {
+    struct timeval begin,end;
+    double duration;
+    gettimeofday(&begin,NULL);
+    char* record = records->text + records->rec_start_pos[rec_id];
+    long length = records->rec_length[rec_id];
+    mParallelBitmap = new ParallelBitmap(record, length, thread_num, depth);
+    gettimeofday(&end,NULL);
+    duration=1000000*(end.tv_sec-begin.tv_sec)+end.tv_usec-begin.tv_usec;
+    //printf("The duration of record splitting is %lf\n",duration/1000000);
+    ///mParallelBitmap->setRecordLength(length);
+    gettimeofday(&begin,NULL);
+    int mode = mParallelBitmap->parallelMode();
+    if (mode == NONSPECULATIVE) {
+        //cout<<"total number of threads is "<<thread_num<<endl;
+        // Step 1
+        for (int i = 0; i < thread_num; ++i) {
+            mThreadArgs[i] = i;
+            int rc=pthread_create(&mThreads[i], NULL, &ParallelBitmapConstructor::buildStructuralCharacterBitmapSbSPison, &mThreadArgs[i]);
+            if (rc)
+            {
+                cout<<"Thread Error; return code is "<<rc<<endl;
+                mParallelBitmap->mDepth = -1;
+                return NULL;
+            }
+        }
+        for(int i = 0; i < thread_num; ++i)
+        {
+            int rc = pthread_join(mThreads[i], NULL);
+            if (rc)
+            {
+                cout<<"Thread Error; return code is "<<rc<<endl;
+                mParallelBitmap->mDepth = -1;
+                return NULL;
+            }
+        }
+        if (num_step < 2) return mParallelBitmap;
+        // Step 2
+        for (int i = 0; i < thread_num; ++i) {
+            mThreadArgs[i] = i;
+            int rc=pthread_create(&mThreads[i], NULL, &ParallelBitmapConstructor::buildStructuralQuoteBitmapSbSPison, &mThreadArgs[i]);
+            if (rc)
+            {
+                cout<<"Thread Error; return code is "<<rc<<endl;
+                mParallelBitmap->mDepth = -1;
+                return NULL;
+            }
+        }
+        for(int i = 0; i < thread_num; ++i)
+        {
+            int rc = pthread_join(mThreads[i], NULL);
+            if (rc)
+            {
+                cout<<"Thread Error; return code is "<<rc<<endl;
+                mParallelBitmap->mDepth = -1;
+                return NULL;
+            }
+        }
+        if (num_step < 3) return mParallelBitmap;
+        // Step 3
+        for (int i = 0; i < thread_num; ++i) {
+            mThreadArgs[i] = i;
+            int rc=pthread_create(&mThreads[i], NULL, &ParallelBitmapConstructor::buildStringMaskBitmapSbSPison, &mThreadArgs[i]);
+            if (rc)
+            {
+                cout<<"Thread Error; return code is "<<rc<<endl;
+                mParallelBitmap->mDepth = -1;
+                return NULL;
+            }
+        }
+        for(int i = 0; i < thread_num; ++i)
+        {
+            int rc = pthread_join(mThreads[i], NULL);
+            if (rc)
+            {
+                cout<<"Thread Error; return code is "<<rc<<endl;
+                mParallelBitmap->mDepth = -1;
+                return NULL;
+            }
+        }
+        if (num_step < 4) return mParallelBitmap;
+        // Step 4
+        for (int i = 0; i < thread_num; ++i) {
+            mThreadArgs[i] = i;
+            int rc=pthread_create(&mThreads[i], NULL, &ParallelBitmapConstructor::updateStructuralCharacterBitmapSbSPison, &mThreadArgs[i]);
+            if (rc)
+            {
+                cout<<"Thread Error; return code is "<<rc<<endl;
+                mParallelBitmap->mDepth = -1;
+                return NULL;
+            }
+        }
+        for(int i = 0; i < thread_num; ++i)
+        {
+            int rc = pthread_join(mThreads[i], NULL);
+            if (rc)
+            {
+                cout<<"Thread Error; return code is "<<rc<<endl;
+                mParallelBitmap->mDepth = -1;
+                return NULL;
+            }
+        }
+        if (num_step < 5) return mParallelBitmap;
+        // Step 5
+        for (int i = 0; i < thread_num; ++i) {
+            mThreadArgs[i] = i;
+            int rc=pthread_create(&mThreads[i], NULL, &ParallelBitmapConstructor::buildLeveledBitmapSbSPison, &mThreadArgs[i]);
+            if (rc)
+            {
+                cout<<"Thread Error; return code is "<<rc<<endl;
+                mParallelBitmap->mDepth = -1;
+                return NULL;
+            }
+        }
+        for(int i = 0; i < thread_num; ++i)
+        {
+            int rc = pthread_join(mThreads[i], NULL);
+            if (rc)
+            {
+                cout<<"Thread Error; return code is "<<rc<<endl;
+                mParallelBitmap->mDepth = -1;
+                return NULL;
+            }
+        }
+        mParallelBitmap->mergeBitmaps();
+    } else {
+        // Step 1
+        for (int i = 0; i < thread_num; ++i) {
+            mThreadArgs[i] = i;
+            int rc=pthread_create(&mThreads[i], NULL, &ParallelBitmapConstructor::buildStructuralCharacterBitmapSbSPison, &mThreadArgs[i]);
+            if (rc)
+            {
+                cout<<"Thread Error; return code is "<<rc<<endl;
+                mParallelBitmap->mDepth = -1;
+                return NULL;
+            }
+        }
+        for(int i = 0; i < thread_num; ++i)
+        {
+            int rc = pthread_join(mThreads[i], NULL);
+            if (rc)
+            {
+                cout<<"Thread Error; return code is "<<rc<<endl;
+                mParallelBitmap->mDepth = -1;
+                return NULL;
+            }
+        }
+        if (num_step < 2) return mParallelBitmap;
+        // Step 2
+        for (int i = 0; i < thread_num; ++i) {
+            mThreadArgs[i] = i;
+            int rc=pthread_create(&mThreads[i], NULL, &ParallelBitmapConstructor::buildStructuralQuoteBitmapSbSPison, &mThreadArgs[i]);
+            if (rc)
+            {
+                cout<<"Thread Error; return code is "<<rc<<endl;
+                mParallelBitmap->mDepth = -1;
+                return NULL;
+            }
+        }
+        for(int i = 0; i < thread_num; ++i)
+        {
+            int rc = pthread_join(mThreads[i], NULL);
+            if (rc)
+            {
+                cout<<"Thread Error; return code is "<<rc<<endl;
+                mParallelBitmap->mDepth = -1;
+                return NULL;
+            }
+        }
+        if (num_step < 3) return mParallelBitmap;
+        // Step 3
+        for (int i = 0; i < thread_num; ++i) {
+            mThreadArgs[i] = i;
+            int rc=pthread_create(&mThreads[i], NULL, &ParallelBitmapConstructor::buildStringMaskBitmapSbSPison, &mThreadArgs[i]);
+            if (rc)
+            {
+                cout<<"Thread Error; return code is "<<rc<<endl;
+                mParallelBitmap->mDepth = -1;
+                return NULL;
+            }
+        }
+        for(int i = 0; i < thread_num; ++i)
+        {
+            int rc = pthread_join(mThreads[i], NULL);
+            if (rc)
+            {
+                cout<<"Thread Error; return code is "<<rc<<endl;
+                mParallelBitmap->mDepth = -1;
+                return NULL;
+            }
+        }
+        // verification and reprocessing
+        mParallelBitmap->rectifyStringMaskBitmaps();
+        if (num_step < 4) return mParallelBitmap;
+        // Step 4
+        for (int i = 0; i < thread_num; ++i) {
+            mThreadArgs[i] = i;
+            int rc=pthread_create(&mThreads[i], NULL, &ParallelBitmapConstructor::updateStructuralCharacterBitmapSbSPison, &mThreadArgs[i]);
+            if (rc)
+            {
+                cout<<"Thread Error; return code is "<<rc<<endl;
+                mParallelBitmap->mDepth = -1;
+                return NULL;
+            }
+        }
+        for(int i = 0; i < thread_num; ++i)
+        {
+            int rc = pthread_join(mThreads[i], NULL);
+            if (rc)
+            {
+                cout<<"Thread Error; return code is "<<rc<<endl;
+                mParallelBitmap->mDepth = -1;
+                return NULL;
+            }
+        }
+        if (num_step < 5) return mParallelBitmap;
+        // Step 5
+        for (int i = 0; i < thread_num; ++i) {
+            mThreadArgs[i] = i;
+            int rc=pthread_create(&mThreads[i], NULL, &ParallelBitmapConstructor::buildLeveledBitmapSbSPison, &mThreadArgs[i]);
+            if (rc)
+            {
+                cout<<"Thread Error; return code is "<<rc<<endl;
+                mParallelBitmap->mDepth = -1;
+                return NULL;
+            }
+        }
+        for(int i = 0; i < thread_num; ++i)
+        {
+            int rc = pthread_join(mThreads[i], NULL);
+            if (rc)
+            {
+                cout<<"Thread Error; return code is "<<rc<<endl;
+                mParallelBitmap->mDepth = -1;
+                return NULL;
+            }
+        }
+        mParallelBitmap->mergeBitmaps();
+    }
+    gettimeofday(&end,NULL);
+    duration=1000000*(end.tv_sec-begin.tv_sec)+end.tv_usec-begin.tv_usec;
+    //printf("The duration of parallel index construction is %lf\n",duration/1000000);
+    return mParallelBitmap;
+}

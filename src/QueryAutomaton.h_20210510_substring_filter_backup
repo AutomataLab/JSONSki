@@ -1,0 +1,1057 @@
+#include <string.h>
+#include <bitset>
+using namespace std;
+
+#define MAX_STATES 50
+#define MAX_STACK_DEPTH 50
+#define MAX_TRANS_STRING 10
+
+#define OBJECT 1
+#define ARRAY 2
+#define KEY_OBJECT 3
+#define KEY_ARRAY 4
+#define KEY 5
+#define OUTPUT_CANDIDATE 6
+#define GENERAL_OUTPUT 7
+#define INVALID -1
+#define UNMATCHED_STATE 0
+
+#define FILTER1 701
+ #define FILTER2 702
+//#define FILTER3 703
+ #define FILTER4 704
+#define FILTER5 705
+ #define MULFILTER3 706
+//#define RECOUTPUT 707
+ #define ARYIDX 708
+
+typedef struct TransStrInfo {
+    char* key;
+    int key_len;
+    int type;
+    int next_state;
+    #ifdef MULFILTER3
+    bool visited;
+    #endif
+} TransStrInfo;
+
+typedef struct StateTransEle {
+    TransStrInfo t_str_info[MAX_TRANS_STRING];
+    int num_trans_str;
+    bool matched_state;
+    int start_idx;
+    int end_idx;
+    bool has_index_constraint;
+} StateTransEle;
+  
+typedef struct DFA {
+    StateTransEle trans_ele[MAX_STATES];
+} DFA;
+
+typedef struct Stack {
+    int stack[MAX_STACK_DEPTH];
+    int arr_counter_stack[MAX_STACK_DEPTH];
+    int match_counter_stack[MAX_STACK_DEPTH];
+    int num_stack_ele;
+} Stack;
+
+typedef struct StateMask {
+    int state;
+    unsigned long mask;
+    int last_match_idx;
+} StateMask;
+
+typedef struct StateMaskInfo {
+    StateMask state_masks[MAX_STATES];
+    int num_states;
+} StateMaskInfo;
+
+class QueryAutomaton {
+  public:
+    QueryAutomaton() {
+        mStack.num_stack_ele = 0;
+        mCurState = 1;
+        mStateMaskInfo.num_states = 0;
+    }
+
+    void init() {
+        mStack.num_stack_ele = 0;
+        mCurState = 1;
+        mArrCounter = 0;
+        mLastMatchIdx = -1; 
+        for (int i = 0; i < MAX_STATES; ++i) {
+            mDfa.trans_ele[i].num_trans_str = 0;
+            mStateMaskInfo.state_masks[i].last_match_idx = -1;
+        }
+    }
+
+    void addTransEle(int start_state, char* key, int type, int next_state, bool matched_state) {
+        int start_idx = start_state - 1;
+        int next_idx = next_state - 1;
+        TransStrInfo t_str_info;
+        t_str_info.key = key;
+        t_str_info.key_len = strlen(key);
+        t_str_info.type = type;
+        t_str_info.next_state = next_state;
+        int num_trans_str = mDfa.trans_ele[start_idx].num_trans_str;
+        mDfa.trans_ele[start_idx].t_str_info[num_trans_str++] = t_str_info;
+        mDfa.trans_ele[start_idx].num_trans_str = num_trans_str;
+        // mDfa.trans_ele[start_idx].next_state = next_state;
+        mDfa.trans_ele[start_idx].matched_state = matched_state;
+        mDfa.trans_ele[start_idx].has_index_constraint = false;
+    }
+
+    void addIndexConstraints(int state, int start_idx, int end_idx) {
+        if (state >= 1) {
+            mDfa.trans_ele[state - 1].has_index_constraint = true;
+            mDfa.trans_ele[state - 1].start_idx = start_idx;
+            mDfa.trans_ele[state - 1].end_idx = end_idx;
+        }
+    }
+
+    bool hasIndexConstraints() {
+        if (mCurState == 0) return false;
+        // cout<<"check index constraints "<<mDfa.trans_ele[mCurState - 1].has_index_constraint<<" state "<<mCurState<<endl;
+        return mDfa.trans_ele[mCurState - 1].has_index_constraint;
+    }
+
+    void addArrayCounter() {
+        ++mArrCounter;
+        // ++mDfa.trans_ele[mCurState - 1].counter; 
+    }
+
+    bool checkArrayCounter() {
+        if (mCurState == 0) return false;
+        int start_idx = mDfa.trans_ele[mCurState - 1].start_idx;
+        int end_idx = mDfa.trans_ele[mCurState - 1].end_idx;
+        if (mArrCounter >= start_idx && mArrCounter < end_idx) {
+            //cout<<"counter correct "<<mArrCounter<<" state "<<mCurState<<" start "<<start_idx<<" end "<<end_idx<<endl;
+            return true;
+        }
+        ///if (mCurState != 5) cout<<"counter error "<<mArrCounter<<" state "<<mCurState<<" start "<<start_idx<<" end "<<end_idx<<endl;
+        return false;
+    }
+
+    __attribute__((always_inline)) bool hasMatchedKeyType(int type) {
+        if (mCurState == 0) return false;
+//        cout<<"check type "<<type<<" state "<<mCurState<<endl;
+        int cur_idx = mCurState - 1;
+        // StateTransEle trans_ele = mDfa.trans_ele[cur_idx];
+        int num_trans_str = mDfa.trans_ele[cur_idx].num_trans_str;
+        int i = 0;
+        int next_state = 0;
+        while (i < num_trans_str) {
+            if (mDfa.trans_ele[cur_idx].t_str_info[i].type == type) {
+    //            cout<<"matched type "<<type<<endl;
+                return true;
+            }
+            ++i;
+        }
+        return false; 
+    }
+
+    __attribute__((always_inline)) bool hasMatchedKeyLen(int key_len) {
+        if (mCurState == 0) return false;
+        int cur_idx = mCurState - 1;
+        //StateTransEle trans_ele = mDfa.trans_ele[cur_idx];
+        int num_trans_str = mDfa.trans_ele[cur_idx].num_trans_str;
+        int i = 0;
+        int next_state = 0;
+        while (i < num_trans_str) {
+            if (mDfa.trans_ele[cur_idx].t_str_info[i].key_len == key_len) {
+                return true;
+            }
+            ++i;
+        }
+        return false;
+    }
+
+    __attribute__((always_inline)) bool hasFoundFields() {
+        if (mCurState == 0) return false; 
+        int cur_idx = mCurState - 1;
+        int num_trans_str = mDfa.trans_ele[cur_idx].num_trans_str;
+        if (num_trans_str == mStack.match_counter_stack[mStack.num_stack_ele - 1])
+            return true;
+        return false;
+    }
+
+     #ifdef MULFILTER3
+     __attribute__((always_inline)) void iniVisitArray() {
+        if (mCurState == 0) return;
+        int cur_idx = mCurState - 1;
+        //StateTransEle trans_ele = mDfa.trans_ele[cur_idx];
+        int num_trans_str = mDfa.trans_ele[cur_idx].num_trans_str;
+        int i = 0;
+        while (i < num_trans_str) {
+            mDfa.trans_ele[cur_idx].t_str_info[i].visited = false;
+           ++i;
+        }
+    }
+
+    __attribute__((always_inline)) int getNextState(char *key, int key_len, int type) {
+        if (mCurState == 0) return 0;
+       // cout<<"check next state "<<key<<" "<<key_len<<" "<<type<<endl;
+        int cur_idx = mCurState - 1;
+        //StateTransEle trans_ele = mDfa.trans_ele[cur_idx];
+        int num_trans_str = mDfa.trans_ele[cur_idx].num_trans_str;
+        int i = 0;
+        int next_state = 0;
+        //if (num_trans_str == mStack.match_counter_stack[mStack.num_stack_ele - 1])
+        //    return 0;
+        while (i < num_trans_str) {
+            if (mDfa.trans_ele[cur_idx].t_str_info[i].visited == false
+                && mDfa.trans_ele[cur_idx].t_str_info[i].type == type
+                && mDfa.trans_ele[cur_idx].t_str_info[i].key_len == key_len
+                && memcmp(mDfa.trans_ele[cur_idx].t_str_info[i].key, key, key_len) == 0) {
+                next_state = mDfa.trans_ele[cur_idx].t_str_info[i].next_state;
+                ++mStack.match_counter_stack[mStack.num_stack_ele - 1];
+                mDfa.trans_ele[cur_idx].t_str_info[i].visited = true;
+                //if (next_state > 0) ++mMatchedCnt;
+                return next_state;
+            }
+            ++i;
+        }
+        return next_state;
+    }
+    #else
+    __attribute__((always_inline)) int getNextState(char *key, int key_len, int type) {
+        if (mCurState == 0) return 0;
+       // cout<<"check next state "<<key<<" "<<key_len<<" "<<type<<endl;
+        int cur_idx = mCurState - 1;
+        //StateTransEle trans_ele = mDfa.trans_ele[cur_idx];
+        int num_trans_str = mDfa.trans_ele[cur_idx].num_trans_str;
+        int i = 0;
+        int next_state = 0;
+        //if (num_trans_str == mStack.match_counter_stack[mStack.num_stack_ele - 1])
+        //    return 0;
+        while (i < num_trans_str) {
+            if (mDfa.trans_ele[cur_idx].t_str_info[i].type == type 
+                && mDfa.trans_ele[cur_idx].t_str_info[i].key_len == key_len 
+                && memcmp(mDfa.trans_ele[cur_idx].t_str_info[i].key, key, key_len) == 0) {
+                next_state = mDfa.trans_ele[cur_idx].t_str_info[i].next_state;
+                ++mStack.match_counter_stack[mStack.num_stack_ele - 1];
+                //if (next_state > 0) ++mMatchedCnt;
+                return next_state;
+            }
+            ++i;
+        }
+        return next_state;
+    }
+    #endif
+
+    /*char* substring_100(char *pText, int begin, int end)
+{
+    int i,j;
+    char * temp=pText;
+    char* temp1=NULL;
+    temp1=(char*)malloc((end-begin+1)*sizeof(char));
+    for (j = 0,i = begin; i < end; i++,j++)
+    {
+        temp1[j]=temp[i];
+    }
+    temp1[j]='\0';
+    return temp1;
+}*/
+
+    bool hasNextTransTkn(int trans_tkn_idx) {
+        int cur_idx = mCurState - 1;
+        if (mCurState == UNMATCHED_STATE) return false;
+        int num_trans_str = mDfa.trans_ele[cur_idx].num_trans_str;
+        if (trans_tkn_idx < num_trans_str) return true;
+        return false;
+    }
+
+    bool findMatchedBitmapFromKey2(int& trans_tkn_idx, char* record, unsigned long& st_quotebit, unsigned long& ed_quotebit, unsigned long& colonbit, unsigned long& lbracketbit, int type = INVALID) {
+        // fetch key field
+        int cur_idx = mCurState - 1;
+        // mStateMaskInfo.num_states = 0;
+        if (mCurState == UNMATCHED_STATE)
+            return false;
+        __m256i v_first = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(record));
+        __m256i v_second = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(record + 32));
+        int i = trans_tkn_idx;
+        int trans_type = mDfa.trans_ele[cur_idx].t_str_info[i].type;
+        int next_state = mDfa.trans_ele[cur_idx].t_str_info[i].next_state;
+        mStateMask.mask = 0;
+        mStateMask.state = 0;
+        if (trans_type == type) {
+            mStateMask.mask = lbracketbit;
+            mStateMask.state = next_state;
+            mStateMaskInfo.state_masks[i].last_match_idx = -1;
+            return true;
+        } else if (trans_type == KEY || trans_type == KEY_OBJECT || trans_type == KEY_ARRAY) {
+            char* key = mDfa.trans_ele[cur_idx].t_str_info[i].key;
+            int key_len = mDfa.trans_ele[cur_idx].t_str_info[i].key_len;
+            int last_match_idx = mStateMaskInfo.state_masks[i].last_match_idx;
+            mStateMaskInfo.state_masks[i].last_match_idx = -1;
+            unsigned long carry_mask = 1UL<<63;
+            // start quote
+            unsigned long mask = st_quotebit;
+            if (mask == 0 && last_match_idx < 0) {
+                return false;
+            }
+            if (mask & carry_mask)
+                mStateMaskInfo.state_masks[i].last_match_idx = 0;
+            mask = mask << 1;
+            if (last_match_idx == 0) mask = mask | 1;
+            // check key field
+            bool skip_loop = false;
+            for (int j = 0; j < key_len; ++j) {
+                char ch = key[j];
+                __m256i v_ch = _mm256_set1_epi8(ch);
+                unsigned long chbit0, chbit;
+                chbit0 = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_first, v_ch));
+                chbit = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_second, v_ch));
+                chbit = (chbit << 32) | chbit0;
+                mask = mask & chbit;
+                if (mask == 0 && last_match_idx < j + 1) {
+                    return false;
+                }
+                if (mask & carry_mask)
+                    mStateMaskInfo.state_masks[i].last_match_idx = j + 1;
+                mask = mask << 1;
+                if (last_match_idx == j + 1) mask = mask | 1;
+            }
+            // end quote
+            mask = mask & ed_quotebit;
+            if (mask == 0 && last_match_idx < key_len + 1) {
+                return false;
+            }
+            if (mask & carry_mask)
+                mStateMaskInfo.state_masks[i].last_match_idx = key_len + 1;
+            mask = mask << 1;
+            if (last_match_idx == key_len + 1) mask = mask | 1;
+            // concecutive blank characters
+            if (last_match_idx == key_len + 2) mask = mask | 1;
+            unsigned long blankbit0, blankbit;
+            __m256i v_blank = _mm256_set1_epi8(' ');
+            blankbit0 = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_first, v_blank));
+            blankbit = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_second, v_blank));
+            blankbit = (blankbit << 32) | blankbit0;
+            mask = (mask + blankbit) & (~blankbit);
+            if ((blankbit & carry_mask))
+                mStateMaskInfo.state_masks[i].last_match_idx = key_len + 2;
+            if (mask == 0 && last_match_idx < key_len + 2) {
+                return false;
+            }
+            if (last_match_idx == key_len + 2) mask = mask | 1;
+            // colon
+            mask = mask & colonbit;
+            if (trans_type == KEY){// || lbracketbit == 0) {
+                if (mask > 0) {
+                    mStateMask.mask = mask;
+                    mStateMask.state = next_state;
+                    mStateMaskInfo.state_masks[i].last_match_idx = -1;
+                    return true;
+                }
+                return false;
+            }
+            if (mask == 0 && last_match_idx < key_len + 3) {
+                return false;
+            }
+            if (mask & carry_mask)
+                mStateMaskInfo.state_masks[i].last_match_idx = key_len + 3;
+            mask = mask << 1;
+            if (last_match_idx == key_len + 3) mask = mask | 1;
+            // consecutive blank characters
+            if (last_match_idx == key_len + 4) mask = mask | 1;
+            mask = (mask + blankbit) & (~blankbit);
+            if ((blankbit & carry_mask))
+                mStateMaskInfo.state_masks[i].last_match_idx = key_len + 4;
+            if (mask == 0 && last_match_idx < key_len + 4) {
+                return false;
+            }
+            if (last_match_idx == key_len + 4) mask = mask | 1;
+            // left brace or left bracket
+            mask = mask & lbracketbit;
+            if (mask > 0) {
+                mStateMask.mask = mask;
+                mStateMask.state = next_state;
+                mStateMaskInfo.state_masks[i].last_match_idx = -1;
+                return true;
+            }
+            return false;
+        }
+    }
+
+    int findMatchedBitmapFromKey1(__m256i& v_first, __m256i& v_second, unsigned long& st_quotebit, unsigned long& ed_quotebit, unsigned long& colonbit, unsigned long& lbracketbit, int type = INVALID) {
+        // fetch key field
+        int cur_idx = mCurState - 1;
+        // get the number of next states
+        int num_states = 0;
+        // mStateMaskInfo.num_states = 0;
+        if (mCurState == UNMATCHED_STATE)
+            return num_states; 
+     //   __m256i v_first = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(record));
+     //   __m256i v_second = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(record + 32));
+      //  cout<<"finding bitmap"<<endl;
+        int num_trans_str = mDfa.trans_ele[cur_idx].num_trans_str;
+        if (mCurState == 9) num_trans_str = 1;
+        if (num_trans_str == 1) 
+        {
+            int i = 0;
+     //   for (int i = 0; i < mDfa.trans_ele[cur_idx].num_trans_str; ++i) { //mDfa.trans_ele[cur_idx].num_trans_str;
+            int trans_type = mDfa.trans_ele[cur_idx].t_str_info[i].type;
+            int next_state = mDfa.trans_ele[cur_idx].t_str_info[i].next_state;
+           // int num_states = mStateMaskInfo.num_states;
+            mStateMask.mask = 0;
+            mStateMask.state = 0;
+            if (trans_type == type) {
+              //  if (trans_type == type) {
+                    mStateMask.mask = lbracketbit;
+                    mStateMask.state = next_state;
+                    ++num_states;
+        //             cout<<"MATCH "<<mDfa.trans_ele[cur_idx].t_str_info[i].next_state<<" "<<type<<endl;
+                mStateMaskInfo.state_masks[num_states].last_match_idx = -1;
+                // ++mStateMaskInfo.num_states;
+            } else {// if (trans_type == KEY || trans_type == KEY_OBJECT || trans_type == KEY_ARRAY) {
+                char* key = mDfa.trans_ele[cur_idx].t_str_info[i].key;
+             //   cout<<"matching key "<<key<<endl;
+                int key_len = mDfa.trans_ele[cur_idx].t_str_info[i].key_len;
+           //     int next_state = mDfa.trans_ele[cur_idx].t_str_info[i].next_state;
+                // int num_states = mStateMaskInfo.num_states;
+                //mStateMaskInfo.state_masks[num_states].mask = 0;
+                //mStateMaskInfo.state_masks[num_states].state = 0;
+                int last_match_idx = mStateMaskInfo.state_masks[num_states].last_match_idx;
+                mStateMaskInfo.state_masks[num_states].last_match_idx = -1;
+                unsigned long carry_mask = 1UL<<63;
+                // start quote
+                unsigned long mask = st_quotebit;
+                // if (last_match_idx > -1) mask = mask | (1 >> last_match_idx);
+                if (mask == 0 && last_match_idx < 0) {
+                //    ++mStateMaskInfo.num_states;
+             //       cout<<"no match "<<mStateMaskInfo.num_states<<endl;
+                    //continue;
+                    return num_states;
+                }
+                if (mask & carry_mask)
+                    mStateMaskInfo.state_masks[num_states].last_match_idx = 0;
+                mask = mask << 1;
+                if (last_match_idx == 0) mask = mask | 1;
+                // check key field
+                bool skip_loop = false;
+                for (int j = 0; j < key_len; ++j) {
+                    char ch = key[j];
+                    __m256i v_ch = _mm256_set1_epi8(ch);
+                    unsigned long chbit0, chbit;
+                    chbit0 = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_first, v_ch));
+                    chbit = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_second, v_ch));
+                    chbit = (chbit << 32) | chbit0;
+                    mask = mask & chbit;
+                    if (mask == 0 && last_match_idx < j + 1) {
+                 //       ++mStateMaskInfo.num_states;
+                        skip_loop = true;
+               //         cout<<"no match "<<mStateMaskInfo.num_states<<" "<<ch<<endl;
+                       // break;
+                        return num_states;
+                    }
+                    if (mask & carry_mask)
+                        mStateMaskInfo.state_masks[num_states].last_match_idx = j + 1;
+                    mask = mask << 1;
+                    if (last_match_idx == j + 1) mask = mask | 1;
+                }
+              //  if (skip_loop == true) continue;
+                // end quote
+                mask = mask & ed_quotebit;
+                if (mask == 0 && last_match_idx < key_len + 1) {
+                //    ++mStateMaskInfo.num_states;
+               //     cout<<"no match "<<mStateMaskInfo.num_states<<" end quote "<<endl;
+                    //continue;
+                    return num_states;
+                }
+                if (mask & carry_mask)
+                    mStateMaskInfo.state_masks[num_states].last_match_idx = key_len + 1;
+                mask = mask << 1;
+                if (last_match_idx == key_len + 1) mask = mask | 1;
+                // concecutive blank characters
+                if (last_match_idx == key_len + 2) mask = mask | 1;
+                unsigned long blankbit0, blankbit;
+                __m256i v_blank = _mm256_set1_epi8(' ');
+                blankbit0 = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_first, v_blank));
+                blankbit = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_second, v_blank));
+                blankbit = (blankbit << 32) | blankbit0;
+                mask = (mask + blankbit) & (~blankbit);
+                if ((blankbit & carry_mask))
+                    mStateMaskInfo.state_masks[num_states].last_match_idx = key_len + 2;
+                if (mask == 0 && last_match_idx < key_len + 2) {
+               //     ++mStateMaskInfo.num_states;
+              //      cout<<"no match "<<mStateMaskInfo.num_states<<" space "<<endl;
+                    //continue;
+                    return num_states;
+                }
+                if (last_match_idx == key_len + 2) mask = mask | 1;
+                // colon
+                mask = mask & colonbit;
+                if (trans_type == KEY){// || lbracketbit == 0) {
+                    if (mask > 0) {
+                        mStateMask.mask = mask;
+                        mStateMask.state = next_state;
+                        mStateMaskInfo.state_masks[num_states].last_match_idx = -1;
+                        ++num_states;
+             //           cout<<"match "<<key<<endl;
+                    }
+              //      ++mStateMaskInfo.num_states;
+             //       cout<<"no match "<<key<<endl;
+                    //continue;
+                    return num_states;
+                }
+                if (mask == 0 && last_match_idx < key_len + 3) {
+              //      ++mStateMaskInfo.num_states;
+               //     cout<<"no match "<<key<<" next blank "<<endl;
+                    //continue;
+                   return num_states;
+                }
+                if (mask & carry_mask)
+                    mStateMaskInfo.state_masks[num_states].last_match_idx = key_len + 3;
+                mask = mask << 1;
+                if (last_match_idx == key_len + 3) mask = mask | 1;
+                // consecutive blank characters
+                if (last_match_idx == key_len + 4) mask = mask | 1;
+                mask = (mask + blankbit) & (~blankbit);
+                if ((blankbit & carry_mask))
+                    mStateMaskInfo.state_masks[num_states].last_match_idx = key_len + 4;
+                if (mask == 0 && last_match_idx < key_len + 4) {
+            //        ++mStateMaskInfo.num_states;
+             //       cout<<"no match "<<key<<" next bracket "<<endl;
+                    //continue;
+                     return num_states;
+                }
+                if (last_match_idx == key_len + 4) mask = mask | 1;
+                // left brace or left bracket
+                mask = mask & lbracketbit;
+                if (mask > 0) {
+                    mStateMask.mask = mask;
+                    mStateMask.state = next_state;
+                    mStateMaskInfo.state_masks[num_states].last_match_idx = -1;
+                    ++num_states;
+            //        cout<<"match "<<key<<" "<<next_state<<" "<<mStateMaskInfo.num_states<<endl;
+                }
+                return num_states;
+            //    ++mStateMaskInfo.num_states;
+            }
+        } else {
+        for (int i = 0; i < num_trans_str; ++i) { //mDfa.trans_ele[cur_idx].num_trans_str;
+            // if (i > 0) cout<<"enter into "<<i<<" "<< mDfa.trans_ele[cur_idx].t_str_info[i].key<<" "<<mStateMaskInfo.state_masks[i].last_match_idx<<endl;
+            int trans_type = mDfa.trans_ele[cur_idx].t_str_info[i].type;
+            // int num_states = mStateMaskInfo.num_states;
+            mStateMaskInfo.state_masks[i].mask = 0;
+            mStateMaskInfo.state_masks[i].state = 0;
+           //  cout<<"trans_type "<<trans_type<<endl;
+            if (trans_type == type) {
+              //  if (trans_type == type) {
+                    mStateMaskInfo.state_masks[i].mask = lbracketbit;
+                    mStateMaskInfo.state_masks[i].state =
+                        mDfa.trans_ele[cur_idx].t_str_info[i].next_state;
+                    ++num_states;
+        //             cout<<"MATCH "<<mDfa.trans_ele[cur_idx].t_str_info[i].next_state<<" "<<type<<endl;
+                mStateMaskInfo.state_masks[i].last_match_idx = -1;
+                // ++mStateMaskInfo.num_states;
+            } else /*if (trans_type == KEY || trans_type == KEY_OBJECT || trans_type == KEY_ARRAY)*/ {
+                char* key = mDfa.trans_ele[cur_idx].t_str_info[i].key;
+             //   cout<<"matching key "<<key<<endl;
+                int key_len = mDfa.trans_ele[cur_idx].t_str_info[i].key_len;
+                int next_state = mDfa.trans_ele[cur_idx].t_str_info[i].next_state;
+                // int num_states = mStateMaskInfo.num_states;
+                mStateMaskInfo.state_masks[num_states].mask = 0;
+                mStateMaskInfo.state_masks[num_states].state = 0;
+                int last_match_idx = mStateMaskInfo.state_masks[i].last_match_idx;
+                mStateMaskInfo.state_masks[i].last_match_idx = -1;
+                unsigned long carry_mask = 1UL<<63;
+                // start quote
+                unsigned long mask = st_quotebit;
+                // if (last_match_idx > -1) mask = mask | (1 >> last_match_idx);
+                if (mask == 0 && last_match_idx < 0) {
+                    //return num_states;
+                    continue;
+                }
+                if (mask & carry_mask)
+                    mStateMaskInfo.state_masks[i].last_match_idx = 0;
+                mask = mask << 1;
+                if (last_match_idx == 0) mask = mask | 1;
+                // check key field
+                bool skip_loop = false;
+                for (int j = 0; j < key_len; ++j) {
+                    char ch = key[j];
+                    __m256i v_ch = _mm256_set1_epi8(ch);
+                    unsigned long chbit0, chbit;
+                    chbit0 = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_first, v_ch));
+                    chbit = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_second, v_ch));
+                    chbit = (chbit << 32) | chbit0;
+                    mask = mask & chbit;
+                    if (mask == 0 && last_match_idx < j + 1) {
+                 //       ++mStateMaskInfo.num_states;
+                        skip_loop = true;
+               //         cout<<"no match "<<mStateMaskInfo.num_states<<" "<<ch<<endl;
+                        break;
+                       // return &mStateMaskInfo;
+                    }
+                    if (mask & carry_mask)
+                        mStateMaskInfo.state_masks[i].last_match_idx = j + 1;
+                    mask = mask << 1;
+                    if (last_match_idx == j + 1) mask = mask | 1;
+                }
+              //  if (i > 0) cout<<" 1"<<skip_loop<<endl;
+                if (skip_loop == true) continue;
+                // end quote
+                mask = mask & ed_quotebit;
+              //  if (i > 0) cout<<"2"<<endl;
+                if (mask == 0 && last_match_idx < key_len + 1) {
+                //    if (i > 0) cout<<"2 return "<<endl;
+                //    ++mStateMaskInfo.num_states;
+               //     cout<<"no match "<<mStateMaskInfo.num_states<<" end quote "<<endl;
+                    continue;
+                    //return &mStateMaskInfo;
+                }
+                if (mask & carry_mask)
+                    mStateMaskInfo.state_masks[i].last_match_idx = key_len + 1;
+               // if (i > 0) cout<<"2"<<endl;
+                mask = mask << 1;
+                if (last_match_idx == key_len + 1) mask = mask | 1;
+                // concecutive blank characters
+                if (last_match_idx == key_len + 2) mask = mask | 1;
+               // if (i > 0) cout<<"3 "<<endl;
+                unsigned long blankbit0, blankbit;
+                __m256i v_blank = _mm256_set1_epi8(' ');
+                blankbit0 = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_first, v_blank));
+                blankbit = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_second, v_blank));
+                blankbit = (blankbit << 32) | blankbit0;
+                mask = (mask + blankbit) & (~blankbit);
+                if ((blankbit & carry_mask))
+                    mStateMaskInfo.state_masks[i].last_match_idx = key_len + 2;
+              //  if (i > 0) cout<<"4 "<<endl;
+                if (mask == 0 && last_match_idx < key_len + 2) {
+               //     ++mStateMaskInfo.num_states;
+              //      cout<<"no match "<<mStateMaskInfo.num_states<<" space "<<endl;
+                    continue;
+                    //return &mStateMaskInfo;
+                }
+                if (last_match_idx == key_len + 2) mask = mask | 1;
+                // colon
+                mask = mask & colonbit;
+                if (trans_type == KEY){// || lbracketbit == 0) {
+                    if (mask > 0) {
+                        mStateMaskInfo.state_masks[num_states].mask = mask;
+                        mStateMaskInfo.state_masks[num_states].state = next_state;
+                        mStateMaskInfo.state_masks[i].last_match_idx = -1;
+                        ++num_states;
+             //           cout<<"match "<<key<<endl;
+                    }
+              //      ++mStateMaskInfo.num_states;
+             //       cout<<"no match "<<key<<endl;
+                    continue;
+                    //return &mStateMaskInfo;
+                }
+                if (mask == 0 && last_match_idx < key_len + 3) {
+              //      ++mStateMaskInfo.num_states;
+               //     cout<<"no match "<<key<<" next blank "<<endl;
+                    continue;
+                   //return &mStateMaskInfo;
+                }
+                if (mask & carry_mask)
+                    mStateMaskInfo.state_masks[i].last_match_idx = key_len + 3;
+                mask = mask << 1;
+                if (last_match_idx == key_len + 3) mask = mask | 1;
+                // consecutive blank characters
+                if (last_match_idx == key_len + 4) mask = mask | 1;
+                mask = (mask + blankbit) & (~blankbit);
+                if ((blankbit & carry_mask))
+                    mStateMaskInfo.state_masks[i].last_match_idx = key_len + 4;
+                if (mask == 0 && last_match_idx < key_len + 4) {
+            //        ++mStateMaskInfo.num_states;
+             //       cout<<"no match "<<key<<" next bracket "<<endl;
+                    continue;
+                    // return &mStateMaskInfo;
+                }
+                if (last_match_idx == key_len + 4) mask = mask | 1;
+                // left brace or left bracket
+                mask = mask & lbracketbit;
+                if (mask > 0) {
+                    mStateMaskInfo.state_masks[num_states].mask = mask;
+                    mStateMaskInfo.state_masks[num_states].state = next_state;
+                    mStateMaskInfo.state_masks[i].last_match_idx = -1;
+                    ++num_states;
+            //        cout<<"match "<<key<<" "<<next_state<<" "<<mStateMaskInfo.num_states<<endl;
+                }
+            //    ++mStateMaskInfo.num_states;
+            }
+            //if (i > 0) cout<<"end into "<<i<<endl;
+        }
+        }
+        num_states = num_trans_str;
+        // cout<<"num states "<<num_states<<endl;
+        return num_states;
+    }
+
+    StateMaskInfo* findMatchedBitmapFromKey(__m256i& v_first, __m256i& v_second, unsigned long& st_quotebit, unsigned long& ed_quotebit, unsigned long& colonbit, unsigned long& lbracketbit, int type = KEY) {
+        // fetch key field
+        int cur_idx = mCurState - 1;
+        // get the number of next states
+        int num_next_states = 0;
+        mStateMaskInfo.num_states = 0;
+      //  cout<<"finding bitmap"<<endl;
+        for (int i = 0; i < mDfa.trans_ele[cur_idx].num_trans_str; ++i) {
+            int trans_type = mDfa.trans_ele[cur_idx].t_str_info[i].type;
+            int num_states = mStateMaskInfo.num_states;
+            /*mStateMaskInfo.state_masks[num_states].mask = 0;
+            mStateMaskInfo.state_masks[num_states].state = 0;*/
+            if (trans_type == OBJECT || trans_type == ARRAY) {
+                if (trans_type == type) {
+                    mStateMaskInfo.state_masks[num_states].mask = lbracketbit;
+                    mStateMaskInfo.state_masks[num_states].state =
+                        mDfa.trans_ele[cur_idx].t_str_info[i].next_state;
+        //             cout<<"MATCH "<<mDfa.trans_ele[cur_idx].t_str_info[i].next_state<<" "<<type<<endl;
+                } else {
+                    mStateMaskInfo.state_masks[num_states].mask = 0;
+                    mStateMaskInfo.state_masks[num_states].state = UNMATCHED_STATE; 
+                }
+                ++mStateMaskInfo.num_states;
+            } else if (trans_type == KEY || trans_type == KEY_OBJECT || trans_type == KEY_ARRAY) {
+                char* key = mDfa.trans_ele[cur_idx].t_str_info[i].key;
+             //   cout<<"matching key "<<key<<endl;
+                int key_len = mDfa.trans_ele[cur_idx].t_str_info[i].key_len;
+                int next_state = mDfa.trans_ele[cur_idx].t_str_info[i].next_state;
+                // int num_states = mStateMaskInfo.num_states;
+                mStateMaskInfo.state_masks[num_states].mask = 0;
+                mStateMaskInfo.state_masks[num_states].state = 0;
+                int last_match_idx = mStateMaskInfo.state_masks[num_states].last_match_idx;
+                mStateMaskInfo.state_masks[num_states].last_match_idx = -1; 
+                unsigned long carry_mask = 1UL<<63;
+                // start quote
+                unsigned long mask = st_quotebit;
+                // if (last_match_idx > -1) mask = mask | (1 >> last_match_idx);
+                if (mask == 0 && last_match_idx < 0) {
+                    ++mStateMaskInfo.num_states;
+             //       cout<<"no match "<<mStateMaskInfo.num_states<<endl;
+                    continue;
+                }
+                if (mask & carry_mask)
+                    mStateMaskInfo.state_masks[num_next_states].last_match_idx = 0;
+                mask = mask << 1;
+                if (last_match_idx == 0) mask = mask | 1;
+                // check key field
+                bool skip_loop = false;
+                for (int j = 0; j < key_len; ++j) {
+                    char ch = key[j];
+                    __m256i v_ch = _mm256_set1_epi8(ch);
+                    unsigned long chbit0, chbit;
+                    chbit0 = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_first, v_ch));
+                    chbit = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_second, v_ch));
+                    chbit = (chbit << 32) | chbit0;
+                    mask = mask & chbit;
+                    if (mask == 0 && last_match_idx < i + 1) {
+                        ++mStateMaskInfo.num_states;
+                        skip_loop = true;
+               //         cout<<"no match "<<mStateMaskInfo.num_states<<" "<<ch<<endl;
+                        break;
+                    }
+                    if (mask & carry_mask)
+                        mStateMaskInfo.state_masks[num_states].last_match_idx = i + 1;
+                    mask = mask << 1;
+                    if (last_match_idx == i + 1) mask = mask | 1;
+                }
+                if (skip_loop == true) continue;
+                // end quote
+                mask = mask & ed_quotebit;
+                if (mask == 0 && last_match_idx < key_len + 1) {
+                    ++mStateMaskInfo.num_states;
+               //     cout<<"no match "<<mStateMaskInfo.num_states<<" end quote "<<endl;
+                    continue;
+                }
+                if (mask & carry_mask)
+                    mStateMaskInfo.state_masks[num_states].last_match_idx = key_len + 1;
+                mask = mask << 1;
+                if (last_match_idx == key_len + 1) mask = mask | 1;
+                // concecutive blank characters
+                if (last_match_idx == key_len + 2) mask = mask | 1;
+                unsigned long blankbit0, blankbit;
+                __m256i v_blank = _mm256_set1_epi8(' ');
+                blankbit0 = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_first, v_blank));
+                blankbit = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_second, v_blank));
+                blankbit = (blankbit << 32) | blankbit0;
+                mask = (mask + blankbit) & (~blankbit);
+                if ((blankbit & carry_mask))
+                    mStateMaskInfo.state_masks[num_states].last_match_idx = key_len + 2;
+                if (mask == 0 && last_match_idx < key_len + 2) {
+                    ++mStateMaskInfo.num_states;
+              //      cout<<"no match "<<mStateMaskInfo.num_states<<" space "<<endl;
+                    continue;
+                }
+                if (last_match_idx == key_len + 2) mask = mask | 1;
+                // colon
+                mask = mask & colonbit;
+                if (trans_type == KEY || lbracketbit == 0) {
+                    if (mask > 0) {
+                        mStateMaskInfo.state_masks[num_next_states].mask = mask;
+                        mStateMaskInfo.state_masks[num_next_states].state = next_state;
+                        mStateMaskInfo.state_masks[num_next_states].last_match_idx = -1;
+             //           cout<<"match "<<key<<endl;
+                    }
+                    ++mStateMaskInfo.num_states;
+             //       cout<<"no match "<<key<<endl; 
+                    continue; 
+                }
+                if (mask == 0 && last_match_idx < key_len + 3) {
+                    ++mStateMaskInfo.num_states;
+               //     cout<<"no match "<<key<<" next blank "<<endl;
+                    continue;
+                }
+                if (mask & carry_mask)
+                    mStateMaskInfo.state_masks[num_next_states].last_match_idx = key_len + 3;
+                mask = mask << 1;
+                if (last_match_idx == key_len + 3) mask = mask | 1;
+                // consecutive blank characters
+                if (last_match_idx == key_len + 4) mask = mask | 1;
+                mask = (mask + blankbit) & (~blankbit);
+                if ((blankbit & carry_mask))
+                    mStateMaskInfo.state_masks[num_next_states].last_match_idx = key_len + 4;
+                if (mask == 0 && last_match_idx < key_len + 4) {
+                    ++mStateMaskInfo.num_states;
+             //       cout<<"no match "<<key<<" next bracket "<<endl;
+                    continue;
+                }
+                if (last_match_idx == key_len + 4) mask = mask | 1;
+                // left brace or left bracket
+                mask = mask & lbracketbit;
+                if (mask > 0) {
+                    mStateMaskInfo.state_masks[num_next_states].mask = mask;
+                    mStateMaskInfo.state_masks[num_next_states].state = next_state;
+                    mStateMaskInfo.state_masks[num_next_states].last_match_idx = -1;
+            //        cout<<"match "<<key<<" "<<next_state<<" "<<mStateMaskInfo.num_states<<endl;
+                }
+                ++mStateMaskInfo.num_states;
+            }
+        }
+        return &mStateMaskInfo;
+    }
+
+    StateMask getMatchedBitmap(char* record, unsigned long& st_quotebit, unsigned long& ed_quotebit, unsigned long& colonbit, unsigned long& lbracketbit)  {
+        // fetch key field
+        int cur_idx = mCurState - 1;
+        char* key = NULL;
+        int key_len = 0;
+        int next_state = 0;
+        int type = INVALID;
+        int num_trans = mDfa.trans_ele[cur_idx].num_trans_str;
+        for (int i = 0; i < mDfa.trans_ele[cur_idx].num_trans_str; ++i) {
+            //if (mDfa.trans_ele[cur_idx].t_str_info[i].type != OBJECT
+               //&& mDfa.trans_ele[cur_idx].t_str_info[i].type != ARRAY) {
+            if (i == 0) {
+                key = mDfa.trans_ele[cur_idx].t_str_info[i].key;
+                key_len = mDfa.trans_ele[cur_idx].t_str_info[i].key_len;
+                next_state = mDfa.trans_ele[cur_idx].t_str_info[i].next_state;
+                type = mDfa.trans_ele[cur_idx].t_str_info[i].type;
+                break;
+            }
+        } 
+        StateMask st_mask;
+        st_mask.mask = 0;
+        st_mask.state = 0;
+        int last_match_idx = mLastMatchIdx;
+//        if (mCurState == 9 && last_match_idx > -1)
+  //          cout<<"***last match idx "<<last_match_idx<<" key "<<key<<" "<<substring_100(record, 0, 64)<<endl;
+        mLastMatchIdx = -1;
+        if (type == OBJECT || type == ARRAY) {
+           // cout<<"special type "<<endl;
+            // load input word into vectors
+            __m256i v_text0 = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(record));
+            __m256i v_text1 = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(record + 32));
+            char ch = '{';
+            if (type == ARRAY) ch = '[';
+            __m256i v_ch = _mm256_set1_epi8(ch);
+            unsigned long chbit0, chbit;
+            chbit0 = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text0, v_ch));
+            chbit = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text1, v_ch));
+            chbit = (chbit << 32) | chbit0;
+            chbit = chbit & lbracketbit;
+            if (chbit) {
+                st_mask.mask = chbit;
+                st_mask.state = next_state;
+        //        if (mOutputSize > 1670960 && last_match_idx > -1) cout<<"**final match "<<chbit<<" key "<<key<<endl;
+          /////      cout<<"single object or array matched "<<type<<endl;
+                return st_mask;
+            } //else if (mCurState != 1) cout<<"single object or array unmatched "<<type<<" "<<mCurState<<endl;
+            return st_mask;
+            /*if (num_trans == 1) return st_mask;
+            key = mDfa.trans_ele[cur_idx].t_str_info[1].key;
+            key_len = mDfa.trans_ele[cur_idx].t_str_info[1].key_len;
+            next_state = mDfa.trans_ele[cur_idx].t_str_info[1].next_state;
+            type = mDfa.trans_ele[cur_idx].t_str_info[1].type; */
+        }
+        // cout<<"start normal processing"<<endl;
+        unsigned long carry_mask = 1UL<<63;
+        // start quote
+        unsigned long mask = st_quotebit;
+        if (last_match_idx > -1) mask = mask | (1 >> last_match_idx);
+        // if (last_match_idx == 0) mask = mask | 1;
+        if (mask == 0 && last_match_idx < 0) return st_mask;
+        if (mask & carry_mask) mLastMatchIdx = 0;
+        mask = mask << 1;
+        if (last_match_idx == 0) mask = mask | 1;
+        // load input word into vectors
+        __m256i v_text0 = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(record));
+        __m256i v_text1 = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(record + 32));
+        if (mCurState != 1 && mOutputSize > 1670960) { // 824690
+            unsigned long colon_pos = __builtin_ctzll(colonbit);
+     //       cout<<"key "<<key<<" "<<substring_100(record, 0, 64)<<" "<<substring_100(record, colon_pos, colon_pos + 50)<<endl;
+        }
+        // check key field
+        for (int i = 0; i < key_len; ++i) {
+            char ch = key[i];
+            __m256i v_ch = _mm256_set1_epi8(ch);
+            unsigned long chbit0, chbit;
+            chbit0 = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text0, v_ch));
+            chbit = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text1, v_ch));
+            chbit = (chbit << 32) | chbit0;
+            mask = mask & chbit;
+            if (mask == 0 && last_match_idx < i + 1) {
+      //          if (mCurState == 9 && last_match_idx > -2) cout<<"****** not matched "<<substring_100(record, 0, 64)<<" key "<<key<<endl;
+                return st_mask;
+            }
+            if (mask & carry_mask) mLastMatchIdx = i + 1;
+            mask = mask << 1;
+            if (last_match_idx == i + 1) mask = mask | 1;
+        }
+  //      cout<<"*** end key "<<endl;
+        // end quote
+        mask = mask & ed_quotebit;
+        if (mask == 0 && last_match_idx < key_len + 1) {
+        //    if (mCurState == 9 && last_match_idx > -2) cout<<"****** not matched "<<substring_100(record, 0, 64)<<" key "<<key<<endl;
+            return st_mask;
+        }
+        if (mask & carry_mask) mLastMatchIdx = key_len + 1;
+        mask = mask << 1;
+        if (last_match_idx == key_len + 1) mask = mask | 1; 
+        // concecutive blank characters
+        if (last_match_idx == key_len + 2) mask = mask | 1;
+        unsigned long blankbit0, blankbit;
+        __m256i v_blank = _mm256_set1_epi8(' ');
+        blankbit0 = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text0, v_blank));
+        blankbit = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text1, v_blank));
+        blankbit = (blankbit << 32) | blankbit0;
+        mask = (mask + blankbit) & (~blankbit);
+        if ((blankbit & carry_mask)) mLastMatchIdx = key_len + 2;
+        if (mask == 0 && last_match_idx < key_len + 2) {
+          //  if (mCurState == 9 && last_match_idx > -2) cout<<"****** not matched "<<substring_100(record, 0, 64)<<" key "<<key<<endl;
+            return st_mask;
+        }
+        if (last_match_idx == key_len + 2) mask = mask | 1;
+  //      cout<<"*** check colon "<<lbracketbit<<" "<<colonbit<<endl;
+        // colon
+        mask = mask & colonbit;
+  //      cout<<"after colon "<<mask<<endl;
+        if (type == KEY) {
+            if (mask > 0) {
+                st_mask.mask = mask;
+                st_mask.state = next_state;
+      ///          mLastMatchIdx = -1;
+       //         if (mOutputSize > 1670960 && last_match_idx > -1) cout<<"**final match "<<mask<<" key "<<key<<endl;
+ ///               if (mOutputSize > 0) cout<<"**match "<<key<<endl;
+            }
+            return st_mask;
+        }
+        if (mask == 0 && last_match_idx < key_len + 3) {
+            //if (mCurState == 9 && last_match_idx > -2) cout<<"****** not matched "<<substring_100(record, 0, 64)<<" key "<<key<<endl;
+            return st_mask;
+        }
+        if (mask & carry_mask) mLastMatchIdx = key_len + 3;
+        mask = mask << 1;
+        if (last_match_idx == key_len + 3) mask = mask | 1;
+   //     cout<<"*** pass colon "<<endl; 
+        // consecutive blank characters
+        if (last_match_idx == key_len + 4) mask = mask | 1;
+        mask = (mask + blankbit) & (~blankbit);
+        if ((blankbit & carry_mask)) mLastMatchIdx = key_len + 4;
+        if (mask == 0 && last_match_idx < key_len + 4) {
+            //if (mCurState == 9 && last_match_idx > -2) cout<<"****** not matched "<<substring_100(record, 0, 64)<<" key "<<key<<endl;
+            return st_mask;
+        }
+        if (last_match_idx == key_len + 4) mask = mask | 1;
+   //     cout<<"*** pass blank "<<mask<<endl;
+        // left brace or left bracket
+        mask = mask & lbracketbit;
+        if (mask > 0) {
+            st_mask.mask = mask;
+            st_mask.state = next_state;
+        ///    mLastMatchIdx = -1;
+        }
+   //   if (mCurState == 9 && last_match_idx > -1 && mOutputSize > 1670960) cout<<"**final match "<<mask<<" key "<<key<<endl;
+        return st_mask;
+    }
+
+    __attribute__((always_inline)) int getNextStateNoKey(int type) {
+        if (mCurState == 0) return 0;
+  //      cout<<"check next state no key "<<type<<endl;
+        int cur_idx = mCurState - 1;
+        // StateTransEle trans_ele = mDfa.trans_ele[cur_idx];
+        int num_trans_str = mDfa.trans_ele[cur_idx].num_trans_str;
+        int i = 0;
+        int next_state = 0;
+        while (i < num_trans_str) {
+            if (mDfa.trans_ele[cur_idx].t_str_info[i].type == type) {
+                next_state = mDfa.trans_ele[cur_idx].t_str_info[i].next_state;
+                return next_state;
+            }
+            ++i;
+        }
+        return next_state;
+    }
+
+    void setCurState(int cur_state) {
+        mCurState = cur_state;
+    }
+
+    int getType(int state) {
+        if (state > 0 && mDfa.trans_ele[state - 1].matched_state == true)
+            return OUTPUT_CANDIDATE;
+        return GENERAL_OUTPUT;
+    }
+
+    __attribute__((always_inline)) void pushStack(int next_state) {
+        //cout<<"push"<<endl;
+      //  if (mCurState != 0) cout<<mCurState<<" "<<next_state<<endl;
+        //if (next_state == 4) cout<<"4"<<endl;
+        if (mStack.num_stack_ele < MAX_STACK_DEPTH) {
+            mStack.stack[mStack.num_stack_ele] = mCurState;
+            //if (next_state == UNMATCHED_STATE)
+            mStack.match_counter_stack[mStack.num_stack_ele] = 0; 
+            //else mStack.match_counter_stack[mStack.num_stack_ele] = 1;
+            mStack.arr_counter_stack[mStack.num_stack_ele++] = mArrCounter;
+///            if (mCurState == 3) 
+         //   cout<<"push state "<<mCurState<<" "<<mStack.num_stack_ele<<" next state "<<next_state<<endl;
+            mCurState = next_state;
+            mArrCounter = -1;
+            mLastMatchIdx = -1;
+        }
+    }
+
+    __attribute__((always_inline)) int popStack() {
+        //cout<<"pop "<<mStack.num_stack_ele<<endl;
+//        cout<<"pop stack "<<mCurState<<" "<<mStack.stack[mStack.num_stack_ele]<<endl;
+        if (mStack.num_stack_ele > 0) {
+            mCurState = mStack.stack[--mStack.num_stack_ele];
+            mArrCounter = mStack.arr_counter_stack[mStack.num_stack_ele];
+            mLastMatchIdx = -1;
+           // if (mCurState == 9) cout<<"pop state "<<mCurState<<endl;
+            return mCurState;
+        }
+        cout<<"pop out exception "<<endl;
+        return INVALID;
+    }
+
+    inline int getStackSize() {
+        return mStack.num_stack_ele;
+    }
+   
+  public:
+    DFA mDfa;
+    int mCurState;
+    int mArrCounter = -1;
+    Stack mStack;
+    int mLastMatchIdx;
+    long mOutputSize = 0;
+    StateMaskInfo mStateMaskInfo;
+    StateMask mStateMask;
+    long mCnt = 0;
+    long mMatchedCnt = 0;
+    int mTempState = 0;
+};

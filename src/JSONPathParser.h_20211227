@@ -1,0 +1,12 @@
+#ifndef JSONPATHPARSER_H
+#define JSONPATHPARSER_H
+#include <string.h>
+#include "QueryAutomaton.h"
+
+#define MAX_KEY 100
+
+class JSONPathParser {
+    public:
+        static void parse(char* query, QueryAutomaton& qa);
+};
+#endif

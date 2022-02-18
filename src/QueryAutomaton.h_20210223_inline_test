@@ -1,0 +1,185 @@
+#ifndef QUERY_AUTOMATON_H
+#define QUERY_AUTOMATON_H
+#include <string.h>
+#include <bitset>
+#include <string>
+#include <iostream>
+#include <vector>
+#include <bitset>
+#include <cassert>
+#include <stack>
+#include <algorithm>
+#include <unordered_map>
+#include <functional>
+#include <math.h>
+#include <immintrin.h>
+using namespace std;
+
+#define MAX_STATES 10
+#define MAX_STACK_DEPTH 50
+#define MAX_TRANS_STRING 50
+
+#define OBJECT 1
+#define ARRAY 2
+#define KEY_OBJECT 3
+#define KEY_ARRAY 4
+#define KEY 5
+#define OUTPUT_CANDIDATE 6
+#define GENERAL_OUTPUT 7
+#define INVALID -1
+#define UNMATCHED_STATE 0
+
+typedef struct TransStrInfo {
+    char* key;
+    int key_len;
+    int type;
+    int next_state;
+} TransStrInfo;
+
+typedef struct StateTransEle {
+    TransStrInfo t_str_info[MAX_TRANS_STRING];
+    int num_trans_str;
+    bool matched_state;
+    int start_idx;
+    int end_idx;
+    bool has_index_constraint;
+} StateTransEle;
+    
+typedef struct DFA {
+    StateTransEle trans_ele[MAX_STATES];
+} DFA;
+
+typedef struct Stack {
+    int stack[MAX_STACK_DEPTH];
+    int arr_counter_stack[MAX_STACK_DEPTH];
+    int num_stack_ele;
+} Stack;
+
+typedef struct StateMask {
+    int state;
+    unsigned long mask;
+    int last_match_idx;
+} StateMask;
+
+typedef struct StateMaskInfo {
+    StateMask state_masks[MAX_STATES];
+    int num_states;
+} StateMaskInfo;
+
+class QueryAutomaton {
+  public:
+    QueryAutomaton();
+
+    void init();
+
+    void addTransEle(int start_state, char* key, int type, int next_state, bool matched_state);
+
+    void addIndexConstraints(int state, int start_idx, int end_idx);
+
+    bool hasIndexConstraints();
+
+    void addArrayCounter();
+
+    bool checkArrayCounter();
+
+    bool hasMatchedKeyType(int type) {
+        if (mCurState == 0) return false;
+//        cout<<"check type "<<type<<" state "<<mCurState<<endl;
+        int cur_idx = mCurState - 1;
+        // StateTransEle trans_ele = mDfa.trans_ele[cur_idx];
+        int num_trans_str = mDfa.trans_ele[cur_idx].num_trans_str;
+        int i = 0;
+        int next_state = 0;
+        while (i < num_trans_str) {
+            if (mDfa.trans_ele[cur_idx].t_str_info[i].type == type) {
+    //            cout<<"matched type "<<type<<endl;
+                return true;
+            }
+            ++i;
+        }
+        return false;
+    }
+
+    bool hasMatchedKeyLen(int key_len) {
+        if (mCurState == 0) return false;
+        int cur_idx = mCurState - 1;
+        //StateTransEle trans_ele = mDfa.trans_ele[cur_idx];
+        int num_trans_str = mDfa.trans_ele[cur_idx].num_trans_str;
+        int i = 0;
+        int next_state = 0;
+        while (i < num_trans_str) {
+            if (mDfa.trans_ele[cur_idx].t_str_info[i].key_len == key_len) {
+                return true;
+            }
+            ++i;
+        }
+        return false;
+    }
+
+    int getNextState(char *key, int key_len, int type) {
+        if (mCurState == 0) return 0;
+    //    cout<<"check next state "<<key<<" "<<key_len<<" "<<type<<endl;
+        int cur_idx = mCurState - 1;
+        //StateTransEle trans_ele = mDfa.trans_ele[cur_idx];
+        int num_trans_str = mDfa.trans_ele[cur_idx].num_trans_str;
+        int i = 0;
+        int next_state = 0;
+        while (i < num_trans_str) {
+            if (mDfa.trans_ele[cur_idx].t_str_info[i].type == type
+                && mDfa.trans_ele[cur_idx].t_str_info[i].key_len == key_len
+                && memcmp(mDfa.trans_ele[cur_idx].t_str_info[i].key, key, key_len) == 0) {
+                next_state = mDfa.trans_ele[cur_idx].t_str_info[i].next_state;
+                return next_state;
+            }
+            ++i;
+        }
+        return next_state;
+    }
+
+    StateMaskInfo* findMatchedBitmapFromKey(__m256i& v_first, __m256i& v_second, unsigned long& st_quotebit, unsigned long& ed_quotebit, unsigned long& colonbit, unsigned long& lbracketbit, int type = KEY);
+
+    StateMask getMatchedBitmap(char* record, unsigned long& st_quotebit, unsigned long& ed_quotebit, unsigned long& colonbit, unsigned long& lbracketbit);
+
+    int getNextStateNoKey(int type) {
+        if (mCurState == 0) return 0;
+  //      cout<<"check next state no key "<<type<<endl;
+        int cur_idx = mCurState - 1;
+        // StateTransEle trans_ele = mDfa.trans_ele[cur_idx];
+        int num_trans_str = mDfa.trans_ele[cur_idx].num_trans_str;
+        int i = 0;
+        int next_state = 0;
+        while (i < num_trans_str) {
+            if (mDfa.trans_ele[cur_idx].t_str_info[i].type == type) {
+                next_state = mDfa.trans_ele[cur_idx].t_str_info[i].next_state;
+                return next_state;
+            }
+            ++i;
+        }
+        return next_state;
+    }
+
+    void setCurState(int cur_state);
+
+    int getType(int state);
+
+    void pushStack(int next_state);
+
+    int popStack();
+
+    int getStackSize();
+
+    StateMaskInfo* findMatchedBitmapFromKey1(__m256i& v_first, __m256i& v_second, unsigned long& st_quotebit, unsigned long& ed_quotebit, unsigned long& colonbit, unsigned long& lbracketbit, int type = INVALID);
+
+
+  public:
+    DFA mDfa;
+    int mCurState;
+    int mArrCounter;
+    Stack mStack;
+    int mLastMatchIdx;
+    long mOutputSize = 0;
+    StateMaskInfo mStateMaskInfo;
+    int mNumTransStr;
+    long mCnt = 0;
+};
+#endif

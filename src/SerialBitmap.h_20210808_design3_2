@@ -1,0 +1,532 @@
+#ifndef SERIALBITMAP_H
+#define SERIALBITMAP_H
+#include <string>
+#include <iostream>
+#include <vector>
+#include <bitset>
+#include <cassert>
+#include <stack>
+#include <algorithm>
+#include <unordered_map>
+#include <functional>
+#include <math.h>
+#include <immintrin.h>
+#include "Bitmap.h"
+#include <unordered_map>
+#include <map>
+#include "QueryAutomaton.h"
+using namespace std;
+
+#define SUCCESS 1001
+#define ARRAY_END 1002
+#define OBJECT_END 1003
+#define RANGE_END 1004
+#define PARTIAL_SKIP 1005
+
+#ifndef unlikely
+#define unlikely(x) __builtin_expect(!!(x), 0)
+#endif
+
+#define MAX_STACK_DEPTH 100
+typedef struct StackElement{
+    unsigned long position;
+    unsigned long bits;
+}StackElement;
+
+typedef struct MatchedBitmapInfo {
+    unsigned long bitmap;
+    unsigned long carry;
+    unsigned long last_index;
+};
+
+typedef struct bitmap{
+    unsigned long colonbit = 0;
+    unsigned long commabit = 0;
+    unsigned long lbracebit = 0;
+    unsigned long rbracebit = 0;
+    unsigned long lbracketbit = 0;
+    unsigned long rbracketbit = 0;
+    // unsigned long combinedbit = 0;
+    //bool has_basic = false;
+    bool has_colon = false;
+    bool has_comma = false;
+    bool has_lbrace = false;
+    bool has_rbrace = false;
+    bool has_lbracket = false;
+    bool has_rbracket = false;
+    // bool has_combined = false;
+} bitmap;
+
+typedef struct IntervalInfo {
+    unsigned long intervalbit = 0;
+    bool is_complete = true;
+} IntervalInfo;
+
+struct JumpInfo {
+    int status;
+    int num_comma;
+    JumpInfo(int s, int n = 0) {
+        status = s;
+        num_comma = n;
+    }
+};
+
+class SerialBitmap : public Bitmap {
+    friend class SerialBitmapIterator;
+  private:
+    long skipper1 = 0, skipper2 = 0, skipper3 = 0, skipper4 = 0, skipper5 = 0;
+    bool tflag=false;
+    unsigned long str_mask;
+    unsigned long escapebit, stringbit, lbracebit, rbracebit, lbracketbit, rbracketbit; 
+   unsigned long bracketbit0, colonbit0, quotebit0, escapebit0, stringbit0, lbracebit0, rbracebit0, commabit0, lbracketbit0, rbracketbit0;
+    long start_id = 0;
+    __m256i v_text0, v_text;
+    int64_t quote_bits; unsigned long st_quotebit; unsigned long ed_quotebit; unsigned long cb_bit;
+    __m256i struct_mask;// = _mm256_set1_epi8(0x20);
+    __m256i structural_table, v_quote, v_colon, v_escape, v_lbrace, v_rbrace, v_comma, v_lbracket, v_rbracket;
+    uint64_t prev_iter_ends_odd_backslash = 0ULL;
+    uint64_t prev_iter_inside_quote = 0ULL;
+    const uint64_t even_bits = 0x5555555555555555ULL;
+    const uint64_t odd_bits = ~even_bits;
+    int temp_cnt = 0;
+    unsigned long first, second;
+    long top_word = -1;
+    long pend_wid = -1;
+    long pend_wid1 = -1;
+    unsigned long cb_mask = 0;
+    unsigned long colonbit = 0;
+    unsigned long quotebit = 0;
+    unsigned long commabit = 0;
+    unsigned long bracketbit = 0;
+    bool cur_word = false;
+    long cur_pos = 0;
+    unsigned long mask = 0;
+    unsigned long colon_mask = 0;
+    unsigned long comma_mask = 0;
+    //long word_id = 0;
+
+    char* mRecord;
+    // for a single large record, stream length equals to record length
+    long mRecordLength;
+    // each temp word has 32 bytes
+    long mNumTmpWords;
+    // each word has 64 bytes
+    long mNumWords;
+    // structural character bitmaps
+//    unsigned long *mEscapeBitmap, *mStrBitmap, *mColonBitmap, *mCommaBitmap, *mLbracketBitmap, *mRbracketBitmap, *mLbraceBitmap, *mRbraceBitmap;
+    // structural quote bitmap, used for key field parsing
+    unsigned long *mQuoteBitmap;
+    // leveled colon bitmap
+//    unsigned long *mLevColonBitmap[MAX_LEVEL + 1];
+    // leveled comma bitmap
+//    unsigned long *mLevCommaBitmap[MAX_LEVEL + 1];
+    // the deepest level of leveled bitmap indexes
+    int mDepth;
+    // whether to create leveled comma bitmaps
+    bool mArraySupported;
+    char mKey[1000];
+    long mTempState;
+    char* mText;
+    bool mUnmatched = false;
+    unsigned long mColonBit = 0;
+    long mWordId;
+    bool mSmallRec = false;
+    QueryAutomaton qa;
+    bool mStop = false;
+
+    int cur_type = 0;
+    unsigned long skip_k_cnt = 0;
+    unsigned long skip_k_cnt1 = 0;
+    unsigned long skip_k_cnt2 = 0;
+    unsigned long skip_k_cnt3 = 0;
+    unsigned long skip_k_cnt4 = 0;
+    unsigned long skip_k_cnt5 = 0;
+    unsigned long skip_k_cnt6 = 0;
+    unsigned long skip_p_cnt = 0;
+    unsigned long skip_p_cnt1 = 0;
+    unsigned long skip_p_cnt2 = 0;
+    unsigned long skip_p_cnt3 = 0;
+    unsigned long skip_p_cnt4 = 0;
+    unsigned long skip_p_cnt5 = 0;
+    unsigned long skip_p_cnt6 = 0;
+    int ctx_stack[100];
+    int top_ctx_stack = -1;
+  public:
+    int mPassed = 0;
+    long mOutputSize;
+    string mOutput;
+    
+  public:
+    SerialBitmap();
+    SerialBitmap(char* record, int depth, bool array_supported = true);
+    ~SerialBitmap();
+    void proc_obj();
+    void proc_ary();
+    __attribute__((always_inline)) int getVType();
+    __attribute__((always_inline)) int getEType();
+    __attribute__((always_inline)) bool skipUnmatchedKVs();
+    __attribute__((always_inline)) void skipE1();
+    __attribute__((always_inline)) void skipE();
+    __attribute__((always_inline)) void skipV();
+    __attribute__((always_inline)) void skipV1();
+    __attribute__((always_inline)) void skipV2();
+    __attribute__((always_inline)) void skipKVsAfter();
+    __attribute__((always_inline)) void skipKVsAfter1();
+    __attribute__((always_inline)) void skipKVsAfter2();
+    __attribute__((always_inline)) void skipKVsAfter3();
+    __attribute__((always_inline)) void skipEsBefore(int idx_begin);
+    __attribute__((always_inline)) int skipTypeUnmatchedEs(int idx_end);
+    __attribute__((always_inline)) void skipEsAfter1();
+    __attribute__((always_inline)) void skipEsAfter();
+    __attribute__((always_inline)) void skipEsAfter2();
+    __attribute__((always_inline)) void skipEsAfter3(); 
+    __attribute__((always_inline)) void jumpToNextBracket();
+    __attribute__((always_inline)) void jumpToNextBracket1(bitmap& bm);
+    __attribute__((always_inline)) bool hasMoreKV();
+    __attribute__((always_inline)) void jumpToNextKV();
+    __attribute__((always_inline)) bool hasMoreElements();
+    __attribute__((always_inline)) void jumpToNextArrayElement();
+    __attribute__((always_inline)) bool jumpToNextBracketWithIndexChecking();
+    __attribute__((always_inline)) bool findFieldQuotePos2(long colon_pos, long& start_pos, long& end_pos);
+    __attribute__((always_inline)) void outputV();
+
+    void object(long& pos, bitmap& bm);
+    void array(long& pos, bitmap& bm);
+    void array_range(long& pos, bitmap& bm);
+    __attribute__((always_inline)) void skipObject(long& pos, bitmap& bm);
+    __attribute__((always_inline)) void skipArray(long& pos, bitmap& bm);
+    __attribute__((always_inline)) void skipPrimitiveObj(long& pos, bitmap& bm);
+    __attribute__((always_inline)) int skipPrimitiveAry(long& pos, bitmap& bm); 
+    __attribute__((always_inline)) void skipFollowingAttributes(long& pos, bitmap& bm);
+    __attribute__((always_inline)) void skipFollowingElements(long& pos, bitmap& bm);
+    __attribute__((always_inline)) int skipElements(long& pos, int num_elements, bitmap& bm);
+    __attribute__((always_inline)) JumpInfo skipPrimElemInRange(long& pos, int num_elements, bitmap& bm);
+    __attribute__((always_inline)) JumpInfo skipPrimElemInRangeEPos(long& pos, int num_elements, bitmap& bm);
+    __attribute__((always_inline)) int goToObjElemInRange(long& pos, int& num_elements, bitmap& bm);
+    __attribute__((always_inline)) int goToAryElemInRange(long& pos, int& num_elements, bitmap& bm);
+    __attribute__((always_inline)) int goToPrimElemInRange(long& pos, int& num_elements, bitmap& bm);
+    __attribute__((always_inline)) int goToObjAttr1(long& pos, bitmap& bm);
+    __attribute__((always_inline)) int goToObjAttr(long& pos, bitmap& bm);
+    __attribute__((always_inline)) int goToAryAttr(long& pos, bitmap& bm);
+    __attribute__((always_inline)) int goToAryAttr1(long& pos, bitmap& bm);
+    __attribute__((always_inline)) int goToAryAttr2(long& pos, bitmap& bm);
+    __attribute__((always_inline)) int goToPrimAttr(long& pos, bitmap& bm);
+    __attribute__((always_inline)) int goToObjElem(long& pos, bitmap& bm);
+    __attribute__((always_inline)) int goToAryElem(long& pos, bitmap& bm);
+    __attribute__((always_inline)) int goToPrimElem(long& pos, bitmap& bm);
+    __attribute__((always_inline)) int goToObjElem1(long& pos, bitmap& bm);
+    __attribute__((always_inline)) int goToAryElem2(long& pos, bitmap& bm);
+    __attribute__((always_inline)) int skipPrimPairs(long& pos, bitmap& bm);
+    __attribute__((always_inline)) int skipPrimElements(long& pos, bitmap& bm); 
+    __attribute__((always_inline)) bool hasMoreElements(long& pos);
+    __attribute__((always_inline)) int getElementType(long& pos);
+    __attribute__((always_inline)) bool hasMoreAttributes(long& pos);
+    __attribute__((always_inline)) int getAttributeType(long& pos); 
+    __attribute__((always_inline)) void resetBitmap(bitmap& bm) {
+        bm.has_colon = false;
+        bm.has_comma = false;
+        bm.has_lbrace = false;
+        bm.has_rbrace = false;
+        bm.has_lbracket = false;
+        bm.has_rbracket = false;
+        // bm.has_combined = false;
+    }
+    
+
+
+   // first three steps of structral index construction, get string mask bitmap
+    __attribute__((always_inline)) void build_bitmap_basic(); 
+    __attribute__((always_inline)) void build_bitmap_colon(bitmap& bm);
+    __attribute__((always_inline)) void build_bitmap_comma(bitmap& bm);
+    __attribute__((always_inline)) void build_bitmap_lbrace(bitmap& bm);
+    __attribute__((always_inline)) void build_bitmap_rbrace(bitmap& bm);
+    __attribute__((always_inline)) void build_bitmap_lbracket(bitmap& bm);
+    __attribute__((always_inline)) void build_bitmap_rbracket(bitmap& bm);
+    // __attribute__((always_inline)) void build_combined_bitmap(bitmap& bm);
+    __attribute__((always_inline)) void get_bitmap_colon(bitmap& bm);
+    __attribute__((always_inline)) void get_bitmap_comma(bitmap& bm);
+    __attribute__((always_inline)) void get_bitmap_lbrace(bitmap& bm);
+    __attribute__((always_inline)) void get_bitmap_rbrace(bitmap& bm);
+    __attribute__((always_inline)) void get_bitmap_lbracket(bitmap& bm);
+    __attribute__((always_inline)) void get_bitmap_rbracket(bitmap& bm);
+    //__attribute__((always_inline)) void get_combined_bitmap(bitmap& bm); 
+
+    __attribute__((always_inline)) IntervalInfo get_interval_new_word(unsigned long& bitmap);
+    __attribute__((always_inline)) IntervalInfo get_interval(long& pos, unsigned long& bitmap);
+    __attribute__((always_inline)) IntervalInfo next_interval(unsigned long& bitmap);
+    __attribute__((always_inline)) long get_position(unsigned long& bitmap, int number); 
+    __attribute__((always_inline)) long interval_end(unsigned long& interval);
+
+    __attribute__((always_inline)) void get_interval_brace(long& pos, bitmap& bm, IntervalInfo& itv_info);
+    __attribute__((always_inline)) void next_interval_brace(bitmap& bm, IntervalInfo& itv_info);
+    __attribute__((always_inline)) void get_interval_bracket(long& pos, bitmap& bm, IntervalInfo& itv_info);
+    __attribute__((always_inline)) void next_interval_bracket(bitmap& bm, IntervalInfo& itv_info); 
+    __attribute__((always_inline)) long get_position_brace(bitmap& bm, int number);
+    __attribute__((always_inline)) long get_position_bracket(bitmap& bm, int number);
+
+    __attribute__((always_inline)) void next_interval(char ch);
+    // oNOTE: optional function, can call SIMD instruction directly
+    __attribute__((always_inline)) int count(unsigned long& interval, unsigned long& bitmap);
+    __attribute__((always_inline)) long object_end(unsigned long& interval, unsigned long& bitmap);
+    //__attribute__((always_inline)) long interval_end(unsigned long& interval);
+
+    // manually create an automaton
+    void generateAutomaton(QueryAutomaton& qa);
+    void indexConstruction();
+    void indexConstruction1();
+    // following three functions are used for evaluation comparison
+//    void indexConstructionMison(int num_step = 5);
+//    void indexConstructionMisonPlus(int num_step = 5);
+//    void indexConstructionSbSPison(int num_step = 5); 
+    // mainly used for small records processing
+    void smallRecordInitialize();
+    void setData(char* record, int depth);
+    void setRecord(char* record);
+    void setRecordLength(long length);
+    void setQuoteBitmap(unsigned long* quote_bitmap);
+    unsigned long* getQuoteBitmap() {return mQuoteBitmap;}
+    // MatchedBitmapInfo findMatchedBitmap(char* record, char* key, int st_idx, unsigned long bitset[], unsigned long& carry);
+    MatchedBitmapInfo findMatchedBitmap(char* record, char* key, int st_idx, unsigned long& quotebit, unsigned long& colonbit, unsigned long& lbbit, unsigned long& carry); 
+   // MatchedBitmapInfo findMatchedBitmap(char* record, char* key, int st_idx, map<char, unsigned long>& bitset, unsigned long& carry);
+//    MatchedBitmapInfo findMatchedBitmap(char* record, char* key, int st_idx, unordered_map<char, unsigned long>& bitset, unsigned long& carry);
+    // MatchedBitmapInfo findMatchedBitmap(char* record, char* key, unsigned long& quotebit, unsigned long& colonbit, unsigned long& lbbit, unsigned long& carry);
+     __attribute__((always_inline)) bool substrSearch_4(string* str, int num_str);
+    __attribute__((always_inline)) bool substrSearch_2(string* str, int num_str);
+    __attribute__((always_inline)) bool substrSearch(string* str, int num_str);
+ 
+  private:
+     char* substring_200(char *pText, long begin, long end)
+{
+    long i,j;
+    char * temp=pText;
+    char* temp1=NULL;
+    temp1=(char*)malloc((end-begin+1)*sizeof(char));
+    for (j = 0,i = begin; i < end; i++,j++)
+    {
+        temp1[j]=temp[i];
+    }
+    temp1[j]='\0';
+    return temp1;
+}
+    void skipValue(unsigned long& j, unsigned long& i);
+    void freeMemory();
+    // all following functions are used for evaluation comparison
+//    void buildStructuralCharacterBitmap();
+//    void buildStructuralQuoteBitmapMison();
+//    void buildStructuralQuoteBitmapPison();
+//    void buildStringMaskBitmapMison();
+//    void buildStringMaskBitmapPison();
+//    void updateStructuralCharacterBitmap();
+//    void buildLeveledBitmapMison();
+//    void buildLeveledBitmapPison();
+    bool findFieldQuotePos(long colon_pos, long& start_pos, long& end_pos, unsigned long& quote_bit);
+    // process key-pri pairs within an interval separated by two consecutive brackets
+    void processKeyPriPairs(QueryAutomaton& qa, long& word_id, unsigned long& colon_brace_bit, long& last_colon_pos, string& output, long& output_size, unsigned long& quote_bit, unsigned long& last_quote_bit, unsigned long& end_value_bit, unsigned long& comma_brace_bit, bool& is_right_brace);
+    void processKeyBracket(QueryAutomaton& qa, int type, long& last_colon_pos, bool& match_flag, bool& skip_arr_ele, bool& skip_unmatched_tkn, unsigned long& last_quote_bit);
+    void processOpenBracket(QueryAutomaton& qa, int type, bool& match_flag, bool& skip_arr_ele, bool& skip_unmatched_tkn);
+    void processCloseBracket(QueryAutomaton& qa, bool& skip_arr_ele);
+    // process an array member
+    void processArrayMember(QueryAutomaton& qa, long& last_comma_pos, bool& skip_arr_ele);
+    // process a candidate array interval separated yb two consecutive brackets
+    void processCandidateArrayInterval(QueryAutomaton& qa, long& word_id, unsigned long& commabit, long& last_comma_pos, bool& skip_arr_ele);
+    void processNoKeyInterval(QueryAutomaton& qa,__m256i& v_first, __m256i& v_second, unsigned long& st_quotebit, unsigned long& ed_quotebit, unsigned long& colonbit);
+    void processKeyNoBracket(QueryAutomaton& qa, long& word_id, __m256i& v_first, __m256i& v_second, long& last_colon_pos, int& temp_state, unsigned long& st_quotebit, unsigned long& ed_quotebit, unsigned long& colonbit, string& output, long& output_size);    
+    // void processKeyWithBracket(QueryAutomaton& qa, long& word_id, __m256i& v_first, __m256i& v_second, long& last_colon_pos, int& temp_state, unsigned long& st_quotebit, unsigned long& ed_quotebit, unsigned long& colonbit, unsigned long& lbracketbit, bool& match_flag, string& output, long& output_size);
+    void processKeyWithBracket(QueryAutomaton& qa, long& word_id, __m256i& v_first, __m256i& v_second, long& last_colon_pos, int& temp_state, unsigned long& st_quotebit, unsigned long& ed_quotebit, unsigned long& colonbit, unsigned long& lbracketbit, int type, bool& match_flag, bool& skip_arr_ele, bool& skip_unmatched_tkn, string& output, long& output_size);
+
+#ifdef FILTER5
+__attribute__((always_inline)) void processNoBracketInterval(QueryAutomaton& qa,__m256i& v_first, __m256i& v_second, long& word_id, unsigned long& st_quotebit, unsigned long& ed_quotebit, unsigned long& colonbit, unsigned long& commabit, string& output, long& output_size, long& last_colon_pos, int& temp_state) {
+        if (qa.mCurState == UNMATCHED_STATE) return;
+        //++output_size;
+        //cout<<"state "<<qa.mCurState<<endl;
+        if (last_colon_pos > -1 && commabit) {
+            if (qa.getType(temp_state) == OUTPUT_CANDIDATE) {
+                long end_pos = (word_id) * 64 + __builtin_ctzll(commabit);
+                long text_length = end_pos - last_colon_pos - 1;
+                //cout<<"text length "<<text_length<<endl;
+                long temp_len = text_length;
+                char* temp_start = mRecord + last_colon_pos + 1;
+                char* ttext = mText;
+                __m256i v = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(temp_start));
+                _mm256_storeu_si256(reinterpret_cast<__m256i *>(ttext), v);
+                ttext += 32;
+                temp_len -= 32;
+                temp_start += 32;
+                if (unlikely(temp_len > 0)) {
+                    while (temp_len > 0) {
+                        __m256i v = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(temp_start));
+                        _mm256_storeu_si256(reinterpret_cast<__m256i *>(ttext), v);
+                        ttext += 32;
+                        temp_len -= 32;
+                        temp_start += 32;
+                    }
+                } 
+            //    memcpy(mText, mRecord + last_colon_pos + 1, text_length);
+                mText[text_length] = '\0';
+               // mText = mText + text_length + 1;
+                output.append(mText);
+              //  cout<<mText<<endl;
+                ++output_size;
+                  ++qa.mStack.match_counter_stack[qa.mStack.num_stack_ele - 1];
+                #ifdef MULFILTER3
+                mUnmatched = true;
+                #ifdef SKIPOBJ
+                if (qa.getStackSize() == 1) {
+                    mStop = true;
+                }
+                #endif
+                #endif
+            }
+            last_colon_pos = -1;
+            return;
+        }
+        int cur_idx = qa.mCurState - 1;
+        int i = 0;
+        int next_state = qa.mDfa.trans_ele[cur_idx].t_str_info[i].next_state;
+        char* key = qa.mDfa.trans_ele[cur_idx].t_str_info[i].key;
+        int key_len = qa.mDfa.trans_ele[cur_idx].t_str_info[i].key_len;
+        int last_match_idx = qa.mStateMaskInfo.state_masks[i].last_match_idx;
+        qa.mStateMaskInfo.state_masks[i].last_match_idx = -1;
+        unsigned long carry_mask = 1UL<<63;
+        // start quote
+        unsigned long tmask = st_quotebit;
+        if (tmask == 0 && last_match_idx < 0) {
+            return;
+        }
+        //if (last_match_idx > -1)
+        //++output_size;
+        if (tmask & carry_mask)
+            qa.mStateMaskInfo.state_masks[i].last_match_idx = 0;
+        tmask = tmask << 1;
+        if (last_match_idx == 0) tmask = tmask | 1;
+        // check key field
+        //cout<<"key "<<key<<endl;
+        for (int j = 0; j < key_len; ++j) {
+            char ch = key[j];
+            __m256i v_ch = _mm256_set1_epi8(ch);
+            unsigned long chbit0, chbit;
+            chbit0 = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_first, v_ch));
+            chbit = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_second, v_ch));
+            chbit = (chbit << 32) | chbit0;
+            tmask = tmask & chbit;
+            if (tmask == 0 && last_match_idx < j + 1) {
+                //cout<<"unmatched "<<ch<<endl;
+                return;
+            }
+            if (tmask & carry_mask)
+                 qa.mStateMaskInfo.state_masks[i].last_match_idx = j + 1;
+            tmask = tmask << 1;
+            if (last_match_idx == j + 1) tmask = tmask | 1;
+        }
+        //if(strcmp(key,"name") == 0)
+       // ++output_size;
+        // end quote
+        tmask = tmask & ed_quotebit;
+        
+        if (tmask == 0 && last_match_idx < key_len + 1) {
+            //cout<<"end quote not match "<<last_match_idx<<" "<<qa.mStateMaskInfo.state_masks[i].last_match_idx<<endl;
+            return;
+        }
+      //  cout<<"end quote "<<endl;
+        // if (last_match_idx > -1) cout<<"last match idx "<<last_match_idx<<endl;
+        if (tmask & carry_mask)
+            qa.mStateMaskInfo.state_masks[i].last_match_idx = key_len + 1;
+        tmask = tmask << 1;
+        if (last_match_idx == key_len + 1) tmask = tmask | 1;
+        unsigned long pp_tmask = tmask;
+        // concecutive blank characters
+        if (last_match_idx == key_len + 2) tmask = tmask | 1;
+        unsigned long blankbit0, blankbit;
+        __m256i v_blank = _mm256_set1_epi8(' ');
+        blankbit0 = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_first, v_blank));
+        blankbit = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_second, v_blank));
+        blankbit = (blankbit << 32) | blankbit0;
+        tmask = (tmask + blankbit) & (~blankbit);
+        if ((blankbit & carry_mask))
+            qa.mStateMaskInfo.state_masks[i].last_match_idx = key_len + 2;
+      //  cout<<"before blank "<<endl;
+        if (tmask == 0 && last_match_idx < key_len + 2) {
+            bitset<64> bit1(pp_tmask);
+          //  cout<<"bit 1"<<bit1<<endl; 
+          //  cout<<"blank not match "<<last_match_idx<<" "<<qa.mStateMaskInfo.state_masks[i].last_match_idx<<endl;
+            return;
+        }
+        if (last_match_idx == key_len + 2) tmask = tmask | 1;
+        unsigned long prev_tmask = tmask;
+        tmask = tmask & colonbit;
+       // cout<<"last step "<<tmask<<" "<<colonbit<<endl;
+       // ++output_size;
+        /*if (tmask == 0) {
+            bitset<64> bit1(tmask);
+            bitset<64> bit2(colonbit);
+            bitset<64> bit3(pp_tmask);
+            cout<<"colon not match "<<qa.mStateMaskInfo.state_masks[i].last_match_idx<<" "<<last_match_idx<<endl;
+            cout<<"bit 1 "<<bit1<<endl;
+            cout<<"bit 2 "<<bit2<<endl;
+            cout<<"bit 3 "<<bit3<<endl;
+        }*/
+        /*while (tmask > 0) {
+            
+            unsigned long matchbit = temp_mask & (-temp_mask);
+        }*/
+        if (tmask > 0) {
+            //qa.mStateMaskInfo.state_masks[i].last_match_idx = -1; 
+            // match is detected
+            unsigned long temp_mask = tmask;
+            unsigned long matchbit = temp_mask & (-temp_mask);
+            // remove the current matched bit and its prior bits from colon mask
+            unsigned long match_mask = matchbit ^ (matchbit - 1);
+            unsigned long tempbit = commabit & (~match_mask);
+            // process the matched output
+            if (tempbit) {
+                long colon_pos = (word_id) * 64 + __builtin_ctzll(temp_mask);
+                long end_pos = (word_id) * 64 + __builtin_ctzll(tempbit);
+                long text_length = end_pos - colon_pos - 1;
+                //cout<<"text length "<<text_length<<endl;
+                long temp_len = text_length;
+                char* temp_start = mRecord + last_colon_pos + 1;
+                char* ttext = mText;
+                __m256i v = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(temp_start));
+                _mm256_storeu_si256(reinterpret_cast<__m256i *>(ttext), v);
+                ttext += 32;
+                temp_len -= 32;
+                temp_start += 32;
+                if (unlikely(temp_len > 0)) {
+                    while (temp_len > 0) {
+                        __m256i v = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(temp_start));
+                        _mm256_storeu_si256(reinterpret_cast<__m256i *>(ttext), v);
+                        ttext += 32;
+                        temp_len -= 32;
+                        temp_start += 32;
+                    }
+                }
+               // memcpy(mText, mRecord + colon_pos + 1, text_length);
+                mText[text_length] = '\0';
+            ///    cout<<mText<<endl;
+                output.append(mText);
+           //     mText = mText + text_length + 1;
+               // cout<<mText<<endl;
+                ++output_size;
+                 ++qa.mStack.match_counter_stack[qa.mStack.num_stack_ele - 1];
+                #ifdef MULFILTER3
+                mUnmatched = true;
+                #ifdef SKIPOBJ
+                if (qa.getStackSize() == 1) {
+                    mStop = true;
+                }
+                #endif
+                #endif
+            } else {
+                long offset = (word_id) * 64 + __builtin_ctzll(temp_mask);
+                last_colon_pos = offset;
+                temp_state = next_state;
+            }
+///            ++qa.mStack.match_counter_stack[qa.mStack.num_stack_ele - 1];
+          //  qa.mStateMaskInfo.state_masks[i].last_match_idx = -1;
+        }
+        qa.mStateMaskInfo.state_masks[i].last_match_idx = -1;
+    }
+#endif
+
+};
+#endif

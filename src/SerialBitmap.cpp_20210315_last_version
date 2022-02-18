@@ -1,0 +1,1736 @@
+#include "SerialBitmap.h"
+#include <immintrin.h>
+
+#include <emmintrin.h>
+#include <string.h>
+
+#include <sys/time.h>
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+#include <pthread.h>
+#include <malloc.h>
+#include <sys/time.h>
+#include <sys/file.h>
+#include <unistd.h>
+#include <sched.h>
+#include <unordered_map>
+//#include "QueryAutomaton.h"
+//#include "query_automaton.h"
+//#include "lexing.h"
+// #include "streaming_automaton.h"
+
+using namespace std;
+
+SerialBitmap::SerialBitmap() {
+
+}
+
+SerialBitmap::SerialBitmap(char* record, int depth, bool array_supported) {
+    this->mRecord = record;
+    this->mDepth = depth;
+    this->mQuoteBitmap = NULL;
+    this->mEscapeBitmap = NULL;
+    this->mColonBitmap = NULL;
+    this->mCommaBitmap = NULL;
+    this->mStrBitmap = NULL;
+    this->mLbraceBitmap = NULL;
+    this->mRbraceBitmap = NULL;
+    this->mLbracketBitmap = NULL;
+    this->mRbracketBitmap = NULL;
+    /*for (int i = 0; i <= depth; ++i) {
+        this->mLevColonBitmap[i] = NULL;
+        this->mLevCommaBitmap[i] = NULL;
+    }
+    this->mArraySupported = array_supported;*/
+}
+
+void SerialBitmap::freeMemory()
+{
+    /*for(int m = 0; m <= mDepth; m++){
+        if (mLevColonBitmap[m]) {
+            free(mLevColonBitmap[m]);
+            mLevColonBitmap[m] = NULL;
+        }
+        if (mLevCommaBitmap[m]) {
+            free(mLevCommaBitmap[m]);
+            mLevCommaBitmap[m] = NULL;
+        }
+    }*/
+    if (mQuoteBitmap) {
+        free(mQuoteBitmap);
+        mQuoteBitmap = NULL;
+//        cout<<"freed quote bitmap"<<endl;
+    }
+   // cout<<"quote"<<endl;
+    /*if (mEscapeBitmap) {
+        free(mEscapeBitmap);
+        mEscapeBitmap = NULL;
+    }
+   // cout<<"escape"<<endl;
+    if (mStrBitmap) {
+        free(mStrBitmap);
+        mStrBitmap = NULL;
+    }
+   // cout<<"str"<<endl;
+    if (mColonBitmap) {
+        free(mColonBitmap);
+        mColonBitmap = NULL;
+    }
+   // cout<<"colon"<<endl;
+    if (mCommaBitmap) {
+        free(mCommaBitmap);
+        mCommaBitmap = NULL;
+    }
+   // cout<<"comma"<<endl;
+    if (mLbraceBitmap) {
+        free(mLbraceBitmap);
+        mLbraceBitmap = NULL;
+    }
+   // cout<<"left brace"<<endl;
+    if (mRbraceBitmap) {
+        free(mRbraceBitmap);
+        mRbraceBitmap = NULL;
+    }
+   // cout<<"right brace"<<endl;
+    if (mLbracketBitmap) {
+        free(mLbracketBitmap);
+        mLbracketBitmap = NULL;
+    }
+   // cout<<"left bracket "<<endl;
+    if (mRbracketBitmap) {
+        free(mRbracketBitmap);
+        mRbracketBitmap = NULL;
+    }*/
+   // cout<<"right bracket"<<endl;
+}
+
+SerialBitmap::~SerialBitmap()
+{
+    freeMemory();
+   /// cout<<"memory released "<<endl;
+}
+
+void SerialBitmap::setRecordLength(long length) {
+    this->mRecordLength = length;
+    this->mNumTmpWords = length / 32;
+    this->mNumWords = length / 64;
+    //this->mQuoteBitmap = (unsigned long*)malloc((mNumWords) * sizeof(unsigned long));
+    // allocate memory space for saving temporary results
+    if (!mQuoteBitmap) {
+        mQuoteBitmap = (unsigned long*)malloc((mNumWords) * sizeof(unsigned long));
+    }
+    /*if (!mColonBitmap) {
+        mColonBitmap = (unsigned long*)malloc((mNumWords) * sizeof(unsigned long));
+    }
+    if (!mCommaBitmap) {
+        mCommaBitmap = (unsigned long*)malloc((mNumWords) * sizeof(unsigned long));
+    }
+    if (!mEscapeBitmap) {
+        mEscapeBitmap = (unsigned long*)malloc((mNumWords) * sizeof(unsigned long));
+    }
+    if (!mStrBitmap) {
+        mStrBitmap = (unsigned long*)malloc((mNumWords) * sizeof(unsigned long));
+    }
+    if (!mLbraceBitmap) {
+        mLbraceBitmap = (unsigned long*)malloc((mNumWords) * sizeof(unsigned long));
+    }
+    if (!mRbraceBitmap) {
+        mRbraceBitmap = (unsigned long*)malloc((mNumWords) * sizeof(unsigned long));
+    }
+    if (!mLbracketBitmap) {
+        mLbracketBitmap = (unsigned long*)malloc((mNumWords) * sizeof(unsigned long));
+    }
+    if (!mRbracketBitmap) {
+        mRbracketBitmap = (unsigned long*)malloc((mNumWords) * sizeof(unsigned long));
+    }*/
+}
+
+void SerialBitmap::buildStructuralCharacterBitmap() {
+   // vectors for structural characters
+    __m256i v_quote = _mm256_set1_epi8(0x22);
+    __m256i v_colon = _mm256_set1_epi8(0x3a);
+    __m256i v_escape = _mm256_set1_epi8(0x5c);
+    __m256i v_lbrace = _mm256_set1_epi8(0x7b);
+    __m256i v_rbrace = _mm256_set1_epi8(0x7d);
+    __m256i v_comma = _mm256_set1_epi8(0x2c);
+    __m256i v_lbracket = _mm256_set1_epi8(0x5b);
+    __m256i v_rbracket = _mm256_set1_epi8(0x5d);
+
+    // variables for saving temporary results in the first four steps
+    unsigned long colonbit0, quotebit0, escapebit0, stringbit0, lbracebit0, rbracebit0, commabit0, lbracketbit0, rbracketbit0;
+    unsigned long colonbit, quotebit, escapebit, stringbit, lbracebit, rbracebit, commabit, lbracketbit, rbracketbit;
+
+    // variables for saving context information among different words
+    int top_word = -1;
+    for (int j = 0; j < mNumTmpWords; ++j) {
+        colonbit = 0, quotebit = 0, escapebit = 0, stringbit = 0, lbracebit = 0, rbracebit = 0, commabit = 0, lbracketbit = 0, rbracketbit = 0;
+        unsigned long i = j * 32;
+        // step 1: build structural character bitmaps
+        __m256i v_text = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(mRecord + i));
+        colonbit = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text, v_colon));
+        quotebit = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text, v_quote));
+        escapebit = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text, v_escape));
+        lbracebit  = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text, v_lbrace));
+        rbracebit  = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text, v_rbrace));
+        commabit = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text, v_comma));
+        lbracketbit = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text, v_lbracket));
+        rbracketbit = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text, v_rbracket));
+        // first half of the word (lowest 32 bits)
+        if(j % 2 == 0) {
+            colonbit0 = colonbit;
+            quotebit0 = quotebit;
+            escapebit0 = escapebit;
+            lbracebit0 = lbracebit;
+            rbracebit0 = rbracebit;
+            commabit0 = commabit;
+            lbracketbit0 = lbracketbit;
+            rbracketbit0 = rbracketbit;
+            continue;
+        } else {
+            // highest 32 bits inside a word
+            colonbit = (colonbit << 32) | colonbit0;
+            quotebit = (quotebit << 32) | quotebit0;
+            escapebit = (escapebit << 32) | escapebit0;
+            lbracebit = (lbracebit << 32) | lbracebit0;
+            rbracebit = (rbracebit << 32) | rbracebit0;
+            commabit = (commabit << 32) | commabit0;
+            lbracketbit = (lbracketbit << 32) | lbracketbit0;
+            rbracketbit = (rbracketbit << 32) | rbracketbit0;
+            mColonBitmap[++top_word] = colonbit;
+            mCommaBitmap[top_word] = commabit;
+            mQuoteBitmap[top_word] = quotebit;
+            mEscapeBitmap[top_word] = escapebit;
+            mLbraceBitmap[top_word] = lbracebit;
+            mRbraceBitmap[top_word] = rbracebit;
+            mLbracketBitmap[top_word] = lbracketbit;
+            mRbracketBitmap[top_word] = rbracketbit;
+        }
+    }   
+}
+
+void SerialBitmap::buildStructuralQuoteBitmapMison() {
+    unsigned long top_b_unstructural_quote = -1;
+    unsigned long large = 1UL<<63;
+    unsigned long constant64 = 0xffffffffffffffff;
+    unsigned long bb_unstructural_quote = 0;
+    for (int j = 0; j < mNumWords; ++j) {
+        // get backslash quote bitmap
+        unsigned long backslash_quote = 0;
+        if(j < mNumWords - 1){
+            if(mQuoteBitmap[j + 1] & 1 == 1)
+                backslash_quote = ((mQuoteBitmap[j] >> 1)|large) & mEscapeBitmap[j];
+            else backslash_quote = ((mQuoteBitmap[j] >> 1)) & mEscapeBitmap[j];
+        }
+        else if(j == mNumWords - 1) backslash_quote = (mQuoteBitmap[j] >> 1) & mEscapeBitmap[j];
+        unsigned long unstructural_quote = 0;
+        // check the number of consecutive backslashes for each escaped quote
+        while(backslash_quote!=0) {
+            unsigned long x = backslash_quote;
+            unsigned long s = x^(x-1);
+            unsigned long backslash_quote_mask = s;
+            int backslash_quote_mask_ones_num = __builtin_popcountl(s);
+            int consecutive_backslash_num = 0;
+            int end = j;
+            int k;
+            for (k = end; k >= 0; --k) {
+                unsigned long backslash_b = mEscapeBitmap[k];
+                if(j == k) {
+                    unsigned long backslash_b_mask = (backslash_b & s) << (64 - backslash_quote_mask_ones_num);
+                    unsigned long d = (~backslash_b_mask);
+                    int leading_ones_num;
+                    if(d == 0) leading_ones_num = 64;
+                    else leading_ones_num = __builtin_clzl(d);
+                    consecutive_backslash_num += leading_ones_num;
+                    if(leading_ones_num != backslash_quote_mask_ones_num)
+                        break;
+                } else {
+                    unsigned long backslash_b_mask = backslash_b & constant64;
+                    unsigned long d = (~backslash_b_mask);
+                    int leading_ones_num;
+                    if(d == 0) leading_ones_num = 64;
+                    else leading_ones_num = __builtin_clzl(d);
+                    consecutive_backslash_num += leading_ones_num;
+                    if(leading_ones_num != 64)
+                        break;
+                }
+            }
+            if((consecutive_backslash_num & 1) == 1) {
+                x = backslash_quote;
+                unsigned long e = x&(-x);
+                unstructural_quote |= e;
+            }
+            x = backslash_quote;
+            unsigned long r = x&(x-1);
+            backslash_quote = r;
+        }
+        unstructural_quote = (~unstructural_quote);
+        if (j == 0) mQuoteBitmap[j] &= (unstructural_quote << 1);
+        else if (j < mNumWords - 1){
+            if(bb_unstructural_quote&large){
+                mQuoteBitmap[j] &= (unstructural_quote << 1 | 1);
+            }
+            else mQuoteBitmap[j] &= (unstructural_quote<<1);
+        }
+        bb_unstructural_quote = unstructural_quote;
+    }
+}
+
+void SerialBitmap::buildStructuralQuoteBitmapPison() {
+    uint64_t prev_iter_ends_odd_backslash = 0ULL;
+    const uint64_t even_bits = 0x5555555555555555ULL;
+    const uint64_t odd_bits = ~even_bits;
+    for (int j = 0; j < mNumWords; ++j) {
+        uint64_t escapebit = mEscapeBitmap[j];
+        uint64_t quotebit = mQuoteBitmap[j];
+        uint64_t bs_bits = escapebit;
+        uint64_t start_edges = bs_bits & ~(bs_bits << 1);
+        int64_t even_start_mask = even_bits ^ prev_iter_ends_odd_backslash;
+        uint64_t even_starts = start_edges & even_start_mask;
+        uint64_t odd_starts = start_edges & ~even_start_mask;
+        uint64_t even_carries = bs_bits + even_starts;
+        int64_t odd_carries;
+        bool iter_ends_odd_backslash = __builtin_uaddll_overflow(bs_bits, odd_starts,
+            (unsigned long long *)(&odd_carries));
+        odd_carries |= prev_iter_ends_odd_backslash;
+        prev_iter_ends_odd_backslash = iter_ends_odd_backslash ? 0x1ULL : 0x0ULL;
+        uint64_t even_carry_ends = even_carries & ~bs_bits;
+        uint64_t odd_carry_ends = odd_carries & ~bs_bits;
+        uint64_t even_start_odd_end = even_carry_ends & odd_bits;
+        uint64_t odd_start_even_end = odd_carry_ends & even_bits;
+        uint64_t odd_ends = even_start_odd_end | odd_start_even_end;
+        int64_t quote_bits = quotebit & ~odd_ends;
+        mQuoteBitmap[j] = quote_bits;
+    }  
+}
+
+void SerialBitmap::buildStringMaskBitmapMison() {
+    int cnt_quote = 0;
+    for (int j = 0; j < mNumWords; ++j) {
+        unsigned long mQuote = mQuoteBitmap[j];
+        unsigned long mString = 0;
+        while(mQuote != 0){
+            unsigned long m = mQuote ^ (mQuote - 1);
+            mString = mString ^ m;
+            mQuote &= (mQuote - 1);
+            ++cnt_quote;
+        }
+        if((cnt_quote & 1) == 1){
+            mString = ~mString;
+        }
+        mStrBitmap[j] = mString;
+    } 
+}
+
+void SerialBitmap::buildStringMaskBitmapPison() {
+    uint64_t prev_iter_inside_quote = 0ULL;
+    unsigned long str_mask; 
+    for (int j = 0; j < mNumWords; ++j) {
+        unsigned long quote_bits = mQuoteBitmap[j];
+        str_mask = _mm_cvtsi128_si64(_mm_clmulepi64_si128(
+            _mm_set_epi64x(0ULL, quote_bits), _mm_set1_epi8(0xFFu), 0));
+        str_mask ^= prev_iter_inside_quote;
+        prev_iter_inside_quote = static_cast<uint64_t>(static_cast<int64_t>(str_mask) >> 63);
+        mStrBitmap[j] = str_mask;
+    }
+}
+
+void SerialBitmap::updateStructuralCharacterBitmap() {
+    // variables for saving temporary results in the first four steps
+    unsigned long colonbit, quotebit, escapebit, stringbit, lbracebit, rbracebit, commabit, lbracketbit, rbracketbit;
+    unsigned long str_mask;
+    for (int j = 0; j < mNumWords; ++j) {
+        // get input info
+        colonbit = mColonBitmap[j];
+        commabit = mCommaBitmap[j];
+        lbracebit = mLbraceBitmap[j];
+        rbracebit = mRbraceBitmap[j];
+        lbracketbit = mLbracketBitmap[j];
+        rbracketbit = mRbracketBitmap[j];
+        str_mask = mStrBitmap[j];
+        unsigned long tmp = (~str_mask);
+        mColonBitmap[j] = colonbit & tmp;
+        mLbraceBitmap[j]  = lbracebit & tmp;
+        mRbraceBitmap[j] = rbracebit & tmp;
+        mCommaBitmap[j] = commabit & tmp;
+        mLbracketBitmap[j] = lbracketbit & tmp;
+        mRbracketBitmap[j] = rbracketbit & tmp;
+    }
+}
+
+void SerialBitmap::buildLeveledBitmapPison() {
+    // variables for saving temporary results in the first four steps
+    unsigned long colonbit, quotebit, escapebit, stringbit, lbracebit, rbracebit, commabit, lbracketbit, rbracketbit;
+    unsigned long str_mask;
+
+     // variables for saving temporary results in the last step
+    unsigned long lb_mask, rb_mask, cb_mask;
+    unsigned long lb_bit, rb_bit, cb_bit;
+    unsigned long first, second;
+    int cur_level = -1;
+    int max_positive_level = -1;
+
+    for (int j = 0; j < mNumWords; ++j) {
+        // get input info
+        colonbit = mColonBitmap[j];
+        commabit = mCommaBitmap[j];
+        lbracebit = mLbraceBitmap[j];
+        rbracebit = mRbraceBitmap[j];
+        lbracketbit = mLbracketBitmap[j];
+        rbracketbit = mRbracketBitmap[j];
+        str_mask = mStrBitmap[j];
+       
+        if (mArraySupported) { 
+            lb_mask = lbracebit | lbracketbit;
+            rb_mask = rbracebit | rbracketbit;
+        } else {
+            lb_mask = lbracebit;
+            rb_mask = rbracebit;
+        }
+        cb_mask = lb_mask | rb_mask;
+        lb_bit = lb_mask & (-lb_mask);
+        rb_bit = rb_mask & (-rb_mask);
+        int top_word = j;
+        if (!cb_mask) {
+            if (cur_level >= 0 && cur_level <= mDepth) {
+                if (!mLevColonBitmap[cur_level]) {
+                    mLevColonBitmap[cur_level] = (unsigned long*)calloc(mNumWords, sizeof(unsigned long));
+                }
+                if (!mLevCommaBitmap[cur_level]) {
+                    mLevCommaBitmap[cur_level] = (unsigned long*)calloc(mNumWords, sizeof(unsigned long));
+                }
+                if (colonbit) {
+                    mLevColonBitmap[cur_level][top_word] = colonbit;
+                } else {
+                    mLevCommaBitmap[cur_level][top_word] = commabit;
+                }
+            }
+        } else {
+            first = 1;
+            while (cb_mask || first) {
+                if (!cb_mask) {
+                    second = 1UL<<63;
+                } else {
+                    cb_bit = cb_mask & (-cb_mask);
+                    second = cb_bit;
+                }
+                if (cur_level >= 0 && cur_level <= mDepth) {
+                    if (!mLevColonBitmap[cur_level]) {
+                        mLevColonBitmap[cur_level] = (unsigned long*)calloc(mNumWords, sizeof(unsigned long));
+                    }
+                    if (!mLevCommaBitmap[cur_level]) {
+                        mLevCommaBitmap[cur_level] = (unsigned long*)calloc(mNumWords, sizeof(unsigned long));
+                    }
+                    unsigned long mask = second - first;
+                    if (!cb_mask) mask = mask | second;
+                    unsigned long colon_mask = mask & colonbit;
+                    if (colon_mask) {
+                        mLevColonBitmap[cur_level][top_word] |= colon_mask;
+                    } else {
+                        mLevCommaBitmap[cur_level][top_word] |= (commabit & mask);
+                    }
+                    if (cb_mask) {
+                        if (cb_bit == rb_bit) {
+                            mLevColonBitmap[cur_level][top_word] |= cb_bit;
+                            mLevCommaBitmap[cur_level][top_word] |= cb_bit;
+                        }
+                        else if (cb_bit == lb_bit && (cur_level + 1 <= mDepth)) {
+                            if (!mLevCommaBitmap[cur_level + 1]) {
+                                mLevCommaBitmap[cur_level + 1] = (unsigned long*)calloc(mNumWords, sizeof(unsigned long));
+                            }
+                            mLevCommaBitmap[cur_level + 1][top_word] |= cb_bit;
+                        }
+                    }
+                } 
+                if (cb_mask) {
+                    if (cb_bit == lb_bit) {
+                        lb_mask = lb_mask & (lb_mask - 1);
+                        lb_bit = lb_mask & (-lb_mask);
+                        ++cur_level;
+                        if (cur_level == 0) {
+                            // JSON record could be an array
+                            if (!mLevCommaBitmap[cur_level]) {
+                                mLevCommaBitmap[cur_level] = (unsigned long*)calloc(mNumWords, sizeof(unsigned long));
+                            }
+                            mLevCommaBitmap[cur_level][top_word] |= cb_bit;
+                        }
+                    } else if (cb_bit == rb_bit) {
+                        rb_mask = rb_mask & (rb_mask - 1);
+                        rb_bit = rb_mask & (-rb_mask);
+                        --cur_level;
+                    }
+                    first = second;
+                    cb_mask = cb_mask & (cb_mask - 1);
+                    if (cur_level > max_positive_level) {
+                        max_positive_level = cur_level;
+                    }
+                } else {
+                    first = 0;
+                }
+            }
+        }
+    }
+    if (mDepth == MAX_LEVEL) mDepth = max_positive_level; 
+}
+
+void SerialBitmap::buildLeveledBitmapMison() {
+    // variables for saving temporary results in the first four steps
+    unsigned long colonbit, quotebit, escapebit, stringbit, lbracketbit, rbracketbit, commabit;
+
+     // variables for saving temporary results in the last step
+    unsigned long lb_mask, rb_mask, cb_mask;
+    unsigned long lb_bit, rb_bit, cb_bit;
+    unsigned long first, second;
+    int cur_level = -1;
+
+    StackElement S[MAX_STACK_DEPTH];
+    for (int j = 0; j < mNumWords; ++j) {
+        // get input info
+        colonbit = mColonBitmap[j];
+        commabit = mCommaBitmap[j];
+        if (mArraySupported) {
+            lbracketbit = mLbraceBitmap[j] | mLbracketBitmap[j];
+            rbracketbit = mRbraceBitmap[j] | mRbracketBitmap[j];
+        } else {
+            lbracketbit = mLbraceBitmap[j];
+            rbracketbit = mRbraceBitmap[j]; 
+        }
+        do {
+            rb_bit = rbracketbit & (-rbracketbit);
+            lb_bit = lbracketbit & (-lbracketbit);
+
+            while (lb_bit != 0 && (rb_bit == 0 || lb_bit < rb_bit))
+            {
+                StackElement temp;
+                temp.position = j;
+                temp.bits = lb_bit;
+                ++cur_level;
+                if (cur_level <= mDepth && !mLevColonBitmap[cur_level]) {
+                    mLevColonBitmap[cur_level] = (unsigned long*)malloc(mNumWords * sizeof(unsigned long));
+                    memcpy(mLevColonBitmap[cur_level], mColonBitmap, 8 * mNumWords);
+                }
+                if (cur_level <= mDepth && !mLevCommaBitmap[cur_level]) {
+                    mLevCommaBitmap[cur_level] = (unsigned long*)malloc(mNumWords * sizeof(unsigned long));
+                    memcpy(mLevCommaBitmap[cur_level], mCommaBitmap, 8 * mNumWords);
+                } 
+                S[cur_level] = temp;
+                lbracketbit = lbracketbit & (lbracketbit - 1);
+                lb_bit = lbracketbit & (-lbracketbit);
+            }
+            if (rb_bit != 0) {
+                StackElement temp = S[cur_level];
+                lb_bit = temp.bits;
+                int pos = temp.position;
+                --cur_level;
+                if (cur_level < mDepth) {
+                if (cur_level >= 0) {
+                    // clear the corresponding colon and comma bits at upper level
+                    if (j == pos) {
+                        mLevColonBitmap[cur_level][j] &= ~(rb_bit - lb_bit);
+                        mLevCommaBitmap[cur_level][j] &= ~(rb_bit - lb_bit);
+                    } else {
+                        mLevColonBitmap[cur_level][pos] &= lb_bit - 1;
+                        mLevCommaBitmap[cur_level][pos] &= lb_bit - 1;
+                        mLevColonBitmap[cur_level][j] &= ~(rb_bit - 1);
+                        mLevCommaBitmap[cur_level][j] &= ~(rb_bit - 1);
+                        for (int k = pos + 1; k < j; ++k) {
+                            mLevColonBitmap[cur_level][k] = 0;
+                            mLevCommaBitmap[cur_level][k] = 0;
+                        }
+                    }
+                }
+                if (rb_bit & mRbraceBitmap[j]) 
+                    mLevColonBitmap[cur_level + 1][j] |= rb_bit; 
+                else if (rb_bit & mRbracketBitmap[j])  
+                    mLevCommaBitmap[cur_level + 1][j] |= rb_bit; 
+                if (lb_bit & mLbracketBitmap[pos]) 
+                    mLevCommaBitmap[cur_level + 1][pos] |= lb_bit;
+                ///if (cur_level == 3) cout<<"bracket "<<cur_level<<" "<<j<<" "<<lb_bit<<" "<<rb_bit<<endl;
+                }
+            }
+            rbracketbit = rbracketbit & (rbracketbit - 1);
+        } while (rb_bit != 0);
+        //cout<<"cur level "<<cur_level<<endl;
+    }
+    //cout<<"final_level "<<cur_level<<endl;
+}
+
+void SerialBitmap::indexConstructionMison(int num_step) {
+    buildStructuralCharacterBitmap();
+    if (num_step >= 2) buildStructuralQuoteBitmapMison();
+    if (num_step >= 3) buildStringMaskBitmapMison();
+    if (num_step >= 4) updateStructuralCharacterBitmap();
+    if (num_step >= 5) buildLeveledBitmapMison();
+}
+
+void SerialBitmap::indexConstructionMisonPlus(int num_step) {
+    buildStructuralCharacterBitmap();
+    if (num_step >= 2) buildStructuralQuoteBitmapPison();
+    if (num_step >= 3) buildStringMaskBitmapPison();
+    if (num_step >= 4) updateStructuralCharacterBitmap();
+    if (num_step >= 5) buildLeveledBitmapMison();
+}
+
+void SerialBitmap::indexConstructionSbSPison(int num_step) {
+    buildStructuralCharacterBitmap();
+    if (num_step >= 2) buildStructuralQuoteBitmapPison();
+    if (num_step >= 3) buildStringMaskBitmapPison();
+    if (num_step >= 4) updateStructuralCharacterBitmap();
+    if (num_step >= 5) buildLeveledBitmapPison();
+}
+
+/*bool SerialBitmap::findFieldQuotePos(long colon_pos, long& start_pos, long& end_pos, unsigned long& quote_bit) {
+    long w_id = colon_pos/64;
+   // long offset = colon_pos%64;
+   // long start_quote = 0;
+  //  long end_quote = 0;
+    start_pos = 0; end_pos = 0;
+    // long cur_w_id = w_id;
+    // end_pos
+    uint64_t cur_quote_bit = quote_bit;
+    while (cur_quote_bit == 0) {
+        --w_id;
+        cur_quote_bit = this->mQuoteBitmap[w_id];
+    }
+    int first_lead_zero = __builtin_clzl(cur_quote_bit);
+    end_pos = w_id * 64 + 64 - first_lead_zero - 1;
+    if (first_lead_zero == 63) cur_quote_bit = 0;
+    else cur_quote_bit = cur_quote_bit << (1 + first_lead_zero) >> (1 + first_lead_zero);
+    while (cur_quote_bit == 0) {
+        --w_id;
+        cur_quote_bit = this->mQuoteBitmap[w_id];
+    }
+    start_pos = w_id * 64 + 64 - __builtin_clzl(cur_quote_bit) - 1;
+*/
+ /*   start_pos = 0; end_pos = 0;
+    // long cur_w_id = w_id;
+    if (quote_bit) {
+        unsigned long cur_quote_bit = quote_bit;
+        int first_lead_zero = __builtin_clzll(cur_quote_bit);
+        int offset = 64 - first_lead_zero;
+        end_pos = w_id * 64 + offset - 1;
+        if (first_lead_zero >= 63) cur_quote_bit = 0;
+        else cur_quote_bit = cur_quote_bit <<(1 + first_lead_zero);
+        if (cur_quote_bit != 0) {
+            int next_offset = 64 - __builtin_clzll(cur_quote_bit) - first_lead_zero - 1;
+            start_pos = w_id * 64 + next_offset - 1;
+  //          bitset<64> testt(cur_quote_bit);
+  //          cout<<"same word for start pos "<<testt<<" "<<first_lead_zero<<endl;
+        } else {
+            unsigned long prev_quote_bit = this->mQuoteBitmap[w_id - 1];
+            first_lead_zero = __builtin_clzll(prev_quote_bit);
+            offset = 64 - first_lead_zero;
+            start_pos = (w_id - 1) * 64 + offset - 1;
+      //      cout<<"prev word for start "<<endl; 
+        }
+    } else {
+        // get start and end quote from previous word
+        unsigned long prev_quote_bit = this->mQuoteBitmap[w_id - 1];
+        int first_lead_zero = __builtin_clzll(prev_quote_bit);
+        int offset = 64 - first_lead_zero;
+        end_pos = (w_id - 1) * 64 + offset - 1;
+        prev_quote_bit = prev_quote_bit << (1 + first_lead_zero);
+        int next_offset = 64 - __builtin_clzll(prev_quote_bit) - first_lead_zero - 1;  
+        start_pos = (w_id - 1) * 64 + next_offset - 1; 
+   //     cout<<"previous for all "<<endl;
+    }*/
+//    bitset<64> test(1<<64);
+ //   cout<<"test "<<test<<endl;
+//    cout<<"w_id "<<w_id<<"start pos "<<start_pos<<" "<<end_pos<<" "<<substring_200(mRecord + start_pos + 1, 0, end_pos - start_pos - 1)<<endl;
+///    cout<<"function :"<<endl;
+   /* while (cur_w_id >= 0)
+    {
+        unsigned long quotebit = this->mQuoteBitmap[cur_w_id];
+        if (cur_w_id == w_id) {
+            quotebit = quotebit & (colon_bit ^ (colonbit - 1));
+        }
+        unsigned long offset = w_id * 64 + __builtin_ctzll(quotebit);
+        while (quotebit && offset < colon_pos)
+        {
+            if (end_pos != 0)
+            {
+                start_quote = offset;
+   ///             cout<<"again "<<offset<<endl;
+            }
+            else if(start_quote == 0)
+            {
+                start_quote = offset;
+            }
+            else if(end_quote == 0)
+            {
+                end_quote = offset;
+            }
+            else
+            {
+                start_quote = end_quote;
+                end_quote = offset;
+            }
+            quotebit = quotebit & (quotebit - 1);
+            offset = w_id * 64 + __builtin_ctzll(quotebit); 
+        }
+        if(start_quote != 0 && end_quote == 0)
+        {
+            end_quote = start_quote;
+            start_quote = 0;
+            end_pos = end_quote;
+        }
+        else if(start_quote != 0 && end_quote != 0)
+        {
+            start_pos = start_quote;
+            end_pos = end_quote;
+            // bitset<64> tempbit(quotebit);
+            // cout<<"temp bit "<<tempbit<<endl;
+           // this->mQuoteBitmap[w_id] = this->mQuoteBitmap[w_id] & (~(quotebit ^ (quotebit - 1)));
+            return true;
+        }
+        --cur_w_id;
+      ///  cout<<"w id "<<endl;
+    }*/
+  /*  return true;
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", ARRAY, 2, false);
+    qa.addTransEle(2, "", OBJECT, 3, false);
+    qa.addTransEle(3, "entities", KEY_OBJECT, 4, false);
+    qa.addTransEle(3, "fake1", KEY, 5, false);
+    qa.addTransEle(3, "fake2", KEY, 6, false);
+    qa.addTransEle(3, "fake3", KEY, 7, false);
+    qa.addTransEle(3, "fake4", KEY, 8, false);
+    qa.addTransEle(3, "fake5", KEY, 9, false);
+    qa.addTransEle(3, "id", KEY, 10, false);
+    qa.addTransEle(3, "id_str", KEY, 11, false);
+    qa.addTransEle(3, "favourites_count", KEY, 12, false);
+    qa.addTransEle(4, "urls", KEY_ARRAY, 5, false);
+    qa.addTransEle(5, "", OBJECT, 6, false);
+    qa.addTransEle(6, "url", KEY, 7, false);
+    qa.addTransEle(7, "", OUTPUT_CANDIDATE, 7, true);
+    qa.addTransEle(10, "", OUTPUT_CANDIDATE, 10, true);
+    qa.addTransEle(11, "", OUTPUT_CANDIDATE, 11, true);
+    qa.addTransEle(12, "", OUTPUT_CANDIDATE, 12, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "products", KEY_ARRAY, 3, false);
+    qa.addTransEle(3, "", OBJECT, 4, false);
+    qa.addTransEle(4, "categoryPath", KEY_ARRAY, 5, false);
+    qa.addTransEle(4, "orderable", KEY, 9, false);
+    qa.addTransEle(4, "departmentId", KEY, 10, false);
+    qa.addTransEle(4, "url", KEY, 11, false);
+    qa.addTransEle(4, "secondaryMarket", KEY, 12, false);
+    qa.addTransEle(4, "shortDescription", KEY, 13, false);
+    // qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(5, "", OBJECT, 6, false);
+    //qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(6, "id", KEY, 7, false);
+    qa.addTransEle(6, "name", KEY, 8, false);
+    qa.addTransEle(6, "same", KEY, 15, false);
+    qa.addTransEle(6, "same1", KEY, 16, false);
+    // qa.addTransEle(6, "same2", KEY, 17, false)
+    qa.addTransEle(7, "", OUTPUT_CANDIDATE, 7, true);
+    qa.addTransEle(8, "", OUTPUT_CANDIDATE, 8, true);
+    qa.addTransEle(9, "", OUTPUT_CANDIDATE, 9, true);
+    qa.addTransEle(10, "", OUTPUT_CANDIDATE, 10, true);
+    qa.addTransEle(11, "", OUTPUT_CANDIDATE, 11, true);
+    qa.addTransEle(12, "", OUTPUT_CANDIDATE, 12, true);
+    qa.addTransEle(13, "", OUTPUT_CANDIDATE, 13, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", ARRAY, 2, false);
+    qa.addTransEle(2, "", OBJECT, 3, false);
+    qa.addTransEle(3, "routes", KEY_ARRAY, 4, false);
+    qa.addTransEle(4, "", OBJECT, 5, false);
+    qa.addTransEle(5, "fake1", KEY, 15, false);
+    qa.addTransEle(5, "bounds", KEY_OBJECT, 16, false);
+    qa.addTransEle(5, "fake3", KEY_ARRAY, 17, false);
+    qa.addTransEle(5, "fake4", KEY_ARRAY, 18, false);
+    qa.addTransEle(5, "fake5", KEY_ARRAY, 19, false);
+    qa.addTransEle(5, "fake6", KEY_ARRAY, 20, false);
+
+    qa.addTransEle(5, "legs", KEY_ARRAY, 6, false);
+    qa.addTransEle(6, "", OBJECT, 7, false);
+    qa.addTransEle(7, "distance", KEY_OBJECT, 29, false);
+    qa.addTransEle(7, "steps", KEY_ARRAY, 8, false);
+    qa.addTransEle(8, "", OBJECT, 9, false);
+    qa.addTransEle(9, "distance", KEY_OBJECT, 10, false);
+    qa.addTransEle(9, "fake1", KEY, 21, false);
+    qa.addTransEle(9, "fake2", KEY_ARRAY, 22, false);
+    qa.addTransEle(9, "fake3", KEY, 23, false);
+    qa.addTransEle(9, "fake1", KEY, 24, false);
+    qa.addTransEle(9, "fake2", KEY_ARRAY, 25, false);
+    qa.addTransEle(9, "fake3", KEY, 26, false);
+
+    qa.addTransEle(10, "text", KEY, 11, false);
+    qa.addTransEle(10, "value", KEY, 12, false);
+    qa.addTransEle(11, "", OUTPUT_CANDIDATE, 11, true);
+    qa.addTransEle(12, "", OUTPUT_CANDIDATE, 12, true);
+    qa.addTransEle(16, "northeast", KEY_OBJECT, 27, false);
+    qa.addTransEle(16, "southwest", KEY_OBJECT, 32, false);
+    qa.addTransEle(27, "lat", KEY, 28, false);
+    qa.addTransEle(28, "", OUTPUT_CANDIDATE, 28, true);
+    qa.addTransEle(29, "distance", KEY_OBJECT, 30, false);
+    qa.addTransEle(30, "text", KEY, 31, false);
+    qa.addTransEle(31, "", OUTPUT_CANDIDATE, 31, true);
+    qa.addTransEle(32, "lng", KEY, 33, false);
+    qa.addTransEle(33, "", OUTPUT_CANDIDATE, 33, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", ARRAY, 2, false);
+    qa.addTransEle(2, "", OBJECT, 3, false);
+    qa.addTransEle(3, "entities", KEY_OBJECT, 4, false);
+    qa.addTransEle(3, "user", KEY_OBJECT, 8, true);
+    qa.addTransEle(3, "user_mentions", KEY_ARRAY, 10, true);
+    qa.addTransEle(4, "urls", KEY_ARRAY, 5, false);
+    qa.addTransEle(5, "", OBJECT, 6, false);
+    qa.addTransEle(6, "url", KEY, 7, false);
+    qa.addTransEle(7, "", OUTPUT_CANDIDATE, 7, true);
+    qa.addTransEle(8, "id", KEY, 9, true);
+    qa.addTransEle(9, "", OUTPUT_CANDIDATE, 9, true);
+    qa.addTransEle(10, "", OBJECT, 11, false);
+    qa.addTransEle(11, "fake", KEY, 11, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "products", KEY_ARRAY, 3, false);
+    qa.addTransEle(3, "", OBJECT, 4, false);
+    qa.addTransEle(4, "validFrom", KEY, 5, false);
+    // qa.addIndexConstraints(5, 1, 3);
+ //   qa.addTransEle(5, "", OBJECT, 6, false);
+ //   qa.addIndexConstraints(5, 1, 3);
+ //   qa.addTransEle(6, "id", KEY, 7, false);
+    qa.addTransEle(5, "", OUTPUT_CANDIDATE, 5, true);
+}*/
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "products", KEY_ARRAY, 3, false);
+    qa.addTransEle(3, "", OBJECT, 4, false);
+    qa.addTransEle(4, "categoryPath", KEY_ARRAY, 5, false);
+    qa.addTransEle(4, "orderable", KEY, 9, false);
+    qa.addTransEle(4, "departmentId", KEY, 10, false);
+    qa.addTransEle(4, "url", KEY, 11, false);
+    qa.addTransEle(4, "secondaryMarket", KEY, 12, false);
+    qa.addTransEle(4, "shortDescription", KEY, 13, false);
+    // qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(5, "", OBJECT, 6, false);
+    //qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(6, "id", KEY, 7, false);
+    qa.addTransEle(6, "name", KEY, 8, false);
+    qa.addTransEle(7, "", OUTPUT_CANDIDATE, 7, true);
+    qa.addTransEle(8, "", OUTPUT_CANDIDATE, 8, true);
+    qa.addTransEle(9, "", OUTPUT_CANDIDATE, 9, true);
+    qa.addTransEle(10, "", OUTPUT_CANDIDATE, 10, true);
+    qa.addTransEle(11, "", OUTPUT_CANDIDATE, 11, true);
+    qa.addTransEle(12, "", OUTPUT_CANDIDATE, 12, true);
+    qa.addTransEle(13, "", OUTPUT_CANDIDATE, 13, true);
+}*/
+
+// $[*].routes[*].legs[*].steps[*].distance.text
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", ARRAY, 2, false);
+    qa.addTransEle(2, "", OBJECT, 3, false);
+    qa.addTransEle(3, "routes", KEY_ARRAY, 4, false);
+    qa.addTransEle(4, "", OBJECT, 5, false);
+    qa.addTransEle(5, "legs", KEY_ARRAY, 6, false);
+    qa.addTransEle(6, "", OBJECT, 7, false);
+    qa.addTransEle(7, "steps", KEY_ARRAY, 8, false);
+    qa.addTransEle(8, "", OBJECT, 9, false);
+    qa.addTransEle(9, "distance", KEY_OBJECT, 10, false); 
+    qa.addTransEle(10, "text", KEY, 11, false);
+    qa.addTransEle(11, "", OUTPUT_CANDIDATE, 11, true);
+}*/
+
+// $.products[*].categoryPath[*].id
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "products", KEY_ARRAY, 3, false);
+    qa.addTransEle(3, "", OBJECT, 4, false);
+    qa.addTransEle(4, "categoryPath", KEY_ARRAY, 5, false);
+    // qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(5, "", OBJECT, 6, false);
+ //   qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(6, "id", KEY, 7, false);
+    qa.addTransEle(7, "", OUTPUT_CANDIDATE, 7, true);
+}*/
+
+// $.products[*].categoryPath[*].id
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", OBJECT, 1, false);
+    qa.addTransEle(1, "products", KEY_ARRAY, 2, false);
+    qa.addTransEle(2, "", OBJECT, 2, false);
+    qa.addTransEle(2, "categoryPath", KEY_ARRAY, 3, false);
+    // qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(3, "", OBJECT, 3, false);
+    // qa.addIndexConstraints(3, 1, 3);
+    qa.addTransEle(3, "id", KEY, 4, false);
+    qa.addIndexConstraints(3, 1, 3);
+    qa.addTransEle(4, "", OUTPUT_CANDIDATE, 4, true);
+}*/
+
+
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+//    qa.addTransEle(1, "", OBJECT, 2, false);
+//    qa.addTransEle(2, "products", KEY_ARRAY, 3, false);
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "categoryPath", KEY_ARRAY, 3, false);
+    // qa.addIndexConstraints(5, 1, 3);
+    qa.addTransEle(3, "", OBJECT, 4, false);
+    qa.addIndexConstraints(3, 0, 3);
+    qa.addTransEle(4, "id", KEY, 5, false);
+    qa.addTransEle(5, "", OUTPUT_CANDIDATE, 5, true);
+}*/
+
+
+// $[*].entities.urls[*].url
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", ARRAY, 2, false);
+    qa.addTransEle(2, "", OBJECT, 3, false);
+    qa.addTransEle(3, "entities", KEY_OBJECT, 4, false);
+    qa.addTransEle(4, "urls", KEY_ARRAY, 5, false);
+    qa.addTransEle(5, "", OBJECT, 6, false);
+    qa.addTransEle(6, "url", KEY, 7, false);
+    qa.addTransEle(7, "", OUTPUT_CANDIDATE, 7, true);
+}*/
+
+// $.meta.view.columns[*].name
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", OBJECT, 1, false);
+    qa.addTransEle(1, "meta", KEY_OBJECT, 2, false);
+    qa.addTransEle(2, "view", KEY_OBJECT, 3, false);
+    qa.addTransEle(3, "columns", KEY_ARRAY, 4, false);
+    qa.addTransEle(4, "", OBJECT, 4, false);
+    qa.addTransEle(4, "name", KEY, 5, false);
+    qa.addTransEle(5, "", OUTPUT_CANDIDATE, 5, true);
+}*/
+
+// $.items[*].bestMarketplacePrice.price
+/*void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", OBJECT, 2, false);
+    qa.addTransEle(2, "items", KEY_ARRAY, 3, false);
+    qa.addTransEle(3, "", OBJECT, 4, false);
+    qa.addTransEle(4, "bestMarketplacePrice", KEY_OBJECT, 5, false);
+    qa.addTransEle(5, "price", KEY, 6, false);
+    qa.addTransEle(6, "", OUTPUT_CANDIDATE, 6, true);
+}*/
+
+// $[*].claims.P150[*].mainsnak.property
+void SerialBitmap::generateAutomaton(QueryAutomaton& qa) {
+    qa.addTransEle(1, "", ARRAY, 2, false);
+    qa.addTransEle(2, "", OBJECT, 3, false);
+    qa.addTransEle(3, "claims", KEY_OBJECT, 4, false);
+    qa.addTransEle(4, "P150", KEY_ARRAY, 5, false);
+    qa.addTransEle(5, "", OBJECT, 6, false);
+    qa.addTransEle(6, "mainsnak", KEY_OBJECT, 7, false);
+    qa.addTransEle(7, "property", KEY, 8, false);
+    qa.addTransEle(8, "", OUTPUT_CANDIDATE, 8, true);
+}
+
+void SerialBitmap::processKeyPriPairs(QueryAutomaton& qa, long& word_id, unsigned long& colon_brace_bit, long& last_colon_pos, string& output, long& output_size, unsigned long& quote_bit, unsigned long& last_quote_bit, unsigned long& end_value_bit, unsigned long& comma_brace_bit, bool& is_right_brace) {
+    if (1==1 || qa.hasMatchedKeyType(KEY)) {
+        long idx = word_id * 64;
+        while (colon_brace_bit) {
+            long cur_colon_pos = idx + __builtin_ctzll(colon_brace_bit);
+            if (last_colon_pos > -1) {
+                uint32_t st = -1, ed = -1;
+                findFieldQuotePos(last_colon_pos, st, ed, last_quote_bit);
+               /* long w_id = last_colon_pos/64;
+             //   st = 0; ed = 0;
+                uint64_t cur_quote_bit = last_quote_bit;
+                while (cur_quote_bit == 0) {
+                    --w_id;
+                    cur_quote_bit = this->mQuoteBitmap[w_id];
+                }
+                int first_lead_zero = __builtin_clzl(cur_quote_bit);
+                long ed = w_id * 64 + 64 - first_lead_zero - 1;
+                /*if (first_lead_zero == 63) cur_quote_bit = 0;
+                else cur_quote_bit = cur_quote_bit << (1 + first_lead_zero) >> (1 + first_lead_zero);
+                while (cur_quote_bit == 0) {
+                    --w_id;
+                    cur_quote_bit = this->mQuoteBitmap[w_id];
+                }
+                long st = w_id * 64 + 64 - __builtin_clzl(cur_quote_bit) - 1;
+               */ 
+
+
+
+                int key_len = ed - st - 1;
+    //            if (1==1 || qa.hasMatchedKeyLen(key_len)) {
+                    // get the content of current key field
+                    //memcpy(mKey, mRecord + st + 1, key_len);
+                    //mKey[key_len] = '\0';
+                    /*__m256i v = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(mRecord + st + 1));
+                    _mm256_storeu_si256(reinterpret_cast<__m256i *>(mKey), v); 
+                    mKey[key_len] = '\0';*/ 
+                    int next_state = 0;//qa.getNextState(mRecord + st + 1, key_len, KEY);
+                    //if (1==2&&qa.mCurState != UNMATCHED_STATE) { //cout<<"check "<<qa.mCurState<<endl;
+                    if (qa.mCurState == 0) {
+                        next_state = 0;
+                    } else {
+                        /*int cur_idx = qa.mCurState - 1;
+                        int num_trans_str = qa.mDfa.trans_ele[cur_idx].num_trans_str;
+                        int x = 0;
+                        while (x < num_trans_str) {
+                            if( qa.mDfa.trans_ele[cur_idx].t_str_info[x].key_len == key_len
+                            && memcmp(qa.mDfa.trans_ele[cur_idx].t_str_info[x].key, mRecord + st + 1, key_len) == 0) {
+                                next_state = qa.mDfa.trans_ele[cur_idx].t_str_info[x].next_state;
+                                //++mStack.match_counter_stack[mStack.num_stack_ele - 1];
+                            }
+                            ++x;
+                        }*/
+                        // mRecord + st + 1
+                        //cout<<"st "<<st<<" "<<(mBase - mRecord)<<" "<<(st-idx)<<" "<<idx<<endl; 
+                        next_state = qa.getNextState(mBase, key_len, KEY);
+                    }
+                    if (next_state > 0) {
+                      //  if (qa.getType(next_state) == OUTPUT_CANDIDATE) {
+                            // add matched value into output list (print mode)
+                            //unsigned long t_quote_bit = quote_bit & (colon_brace_bit ^ (colon_brace_bit - 1));
+                            //findFieldQuotePos(cur_colon_pos, st, ed, t_quote_bit);
+                            uint32_t w_id = last_colon_pos / 64;
+                            if (is_right_brace == true) w_id = word_id;
+                            else if (end_value_bit == 0) {
+                                w_id = word_id;
+                                end_value_bit = comma_brace_bit;
+                            }
+                   //         if (w_id != word_id) cout<<"word id "<<word_id<<" last word id "<<w_id<<endl;
+                            uint32_t end_value_pos = w_id * 64 + __builtin_ctzll(end_value_bit); 
+                            uint32_t text_length = end_value_pos - last_colon_pos - 1;
+                   //         char* text = (char*)malloc(text_length + 1);
+                            if (text_length > 0) {
+                                int32_t temp_len = text_length;
+                                char* temp_start = mRecord + last_colon_pos + 1;
+                                char* ttext = mText;
+                                //cout<<"test length "<<text_length<<" "<<last_colon_pos<<endl;
+                                while (temp_len > 0) {
+                                    __m256i v = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(temp_start));
+                                    _mm256_storeu_si256(reinterpret_cast<__m256i *>(ttext), v);
+                                    //cout<<"done "<<endl;
+                                    ttext += 32;
+                                    temp_len -= 32;
+                                    temp_start += 32;
+                                }
+                                //cout<<"done "<<endl;
+                                //__m256i v = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(mRecord + last_colon_pos + 1));
+                                //_mm256_storeu_si256(reinterpret_cast<__m256i *>(mText), v);
+                            }
+                            else 
+                                 memcpy(mText, mRecord + last_colon_pos + 1, text_length);
+                          //  cout<<"test length "<<text_length<<endl;
+                            mText[text_length] = '\0';
+                          //  cout<<"done "<<endl;
+                         //   mText[text_length] = ';';
+                   //         mText = mText + text_length + 1;
+                   //         cout<<"text "<<text<<" "<<is_right_brace<<" "<<end_value_pos<<" "<<last_colon_pos<<" "<<end_value_bit<<endl;
+                            output.append(mText);
+                   //         free(text);
+                            ++output_size;
+                            last_colon_pos = -1;
+                        //}
+                    } else {
+                          long w_id = last_colon_pos / 64;
+                            if (is_right_brace == true) w_id = word_id;
+                            else if (end_value_bit == 0) {
+                                w_id = word_id;
+                                end_value_bit = comma_brace_bit;
+                            }
+                   //         if (w_id != word_id) cout<<"word id "<<word_id<<" last word id "<<w_id<<endl;
+                            long end_value_pos = w_id * 64 + __builtin_ctzll(end_value_bit);
+                            long text_length = end_value_pos - last_colon_pos - 1;
+                       //     if (text_length > 0 && text_length < 1000) {
+                        //        last_colon_pos = -1;
+                             //   ++qa.mCnt;
+                         //        cout<<"mText before "<<endl;
+                          //  if (text_length >= 32) {
+                              long temp_len = text_length;
+                              char* temp_start = mBase;//mRecord + last_colon_pos + 1;
+                              char* ttext = mText;
+                              while (temp_len > 0) {
+                                 __m256i v = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(temp_start));
+                            _mm256_storeu_si256(reinterpret_cast<__m256i *>(ttext), v);
+                                 ttext += 32;
+                                 temp_len -= 32;
+                                 temp_start += 32;
+                             }
+                             /*} else {
+                                 memcpy(mText, mRecord + last_colon_pos + 1, text_length);
+                             }*/
+                            mText[text_length + 1] = '\0';
+                         //   mText[text_length] = '\0';
+                           //     cout<<"mText "<<text_length<<" "<<mText<<endl; 
+                         //   }
+                          last_colon_pos = -1;
+                    }
+                //}
+            }
+            last_colon_pos = cur_colon_pos;
+            end_value_bit =  comma_brace_bit & (~(colon_brace_bit ^ (colon_brace_bit - 1)));
+       //     bitset<64> ocolon_bit(colon_brace_bit);
+            last_quote_bit = quote_bit & (colon_brace_bit ^ (colon_brace_bit - 1));
+        //    bitset<64> bquote_bit(quote_bit);
+       //     bitset<64> lastquote_bit(last_quote_bit);
+      //      cout<<"colon "<<ocolon_bit<<" quote "<<bquote_bit<<" final "<<lastquote_bit<<endl;
+            colon_brace_bit = colon_brace_bit & (colon_brace_bit - 1);
+   ///         if (colon_brace_bit) cout<<"in loop"<<endl;
+        }
+    } else {
+        // search for the position of the last key in the current word
+        /*unsigned long backup_bit = 0;
+        while (colon_brace_bit) {
+            backup_bit = colon_brace_bit;
+            long cur_colon_pos = word_id * 64 + __builtin_ctzll(colon_brace_bit);
+            last_colon_pos = cur_colon_pos;
+            //prev_colon_brace_bit = colon_brace_bit;
+            last_quote_bit = quote_bit & (colon_brace_bit ^ (colon_brace_bit - 1)); 
+            colon_brace_bit = colon_brace_bit & (colon_brace_bit - 1);
+             end_value_bit =  comma_brace_bit & (~(colon_brace_bit ^ (colon_brace_bit - 1)));
+        }
+        colon_brace_bit = backup_bit;*/
+        if (colon_brace_bit) {
+            int offset = 64 - __builtin_clzll(colon_brace_bit);
+         //   long cur_colon_pos = word_id * 64 + offset;//64 - __builtin_clzll(colon_brace_bit);
+         //   unsigned long prev_colon_brace_bit = colon_brace_bit;
+            colon_brace_bit = colon_brace_bit & (1UL << (offset - 1));
+           // if (backup_bit != colon_brace_bit) cout<<"error "<<endl;
+            /*if (offset == 64) {
+                bitset<64> tempcolonbit(colon_brace_bit);
+                bitset<64> tempcolonbit1(prev_colon_brace_bit);
+                cout<<"colon bit "<<tempcolonbit<<" "<<offset<<" "<<tempcolonbit1<<endl;
+            }*/
+           // if (offset == 0 || offset == 64 || offset == 63) cout<<"exception "<<offset<<endl;
+         //   if (colon_brace_bit == 0) cout<<"colon brace bit wrong "<<endl;
+            long cur_colon_pos = word_id * 64 + __builtin_ctzll(colon_brace_bit);
+            last_colon_pos = cur_colon_pos;
+            last_quote_bit = quote_bit & (colon_brace_bit ^ (colon_brace_bit - 1));
+            end_value_bit =  comma_brace_bit & (~(colon_brace_bit ^ (colon_brace_bit - 1)));
+        }
+    }
+} 
+
+// TODO: remove skip_unmatched_tkn, and generate different code during compilation
+void SerialBitmap::processKeyBracket(QueryAutomaton& qa, int type, long& last_colon_pos, bool& match_flag, bool& skip_arr_ele, bool& skip_unmatched_tkn, unsigned long& last_quote_bit) {
+    match_flag = false;
+    int next_state = UNMATCHED_STATE;
+    if (1==1 || qa.hasMatchedKeyType(type)) {
+        uint32_t st = -1, ed = -1;
+       /* long w_id = last_colon_pos/64;
+                //st = 0; ed = 0;
+                uint64_t cur_quote_bit = last_quote_bit;
+                while (cur_quote_bit == 0) {
+                    --w_id;
+                    cur_quote_bit = this->mQuoteBitmap[w_id];
+                }
+                int first_lead_zero = __builtin_clzl(cur_quote_bit);
+                long ed = w_id * 64 + 64 - first_lead_zero - 1;
+                if (first_lead_zero == 63) cur_quote_bit = 0;
+                else cur_quote_bit = cur_quote_bit << (1 + first_lead_zero) >> (1 + first_lead_zero);
+                while (cur_quote_bit == 0) {
+                    --w_id;
+                    cur_quote_bit = this->mQuoteBitmap[w_id];
+                }
+                long st = w_id * 64 + 64 - __builtin_clzl(cur_quote_bit) - 1;
+*/
+        
+        findFieldQuotePos(last_colon_pos, st, ed, last_quote_bit);
+        int key_len = ed - st - 1;
+  //      if (1==1 || qa.hasMatchedKeyLen(key_len)) {
+            //memcpy(mKey, mRecord + st + 1, key_len);
+            //mKey[key_len] = '\0';
+            /*__m256i v = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(mRecord + st + 1));
+                    _mm256_storeu_si256(reinterpret_cast<__m256i *>(mKey), v);
+                    mKey[key_len] = '\0';*/
+          //  next_state = 0;//qa.getNextState(mRecord + st + 1, key_len, type);
+            if (qa.mCurState != UNMATCHED_STATE) { //cout<<"check "<<qa.mCurState<<endl;
+                next_state = qa.getNextState(mBase, key_len, type); //mRecord + st + 1
+            }
+  //      }
+    }
+    // push matched state or unmatched state for not skipping unmatched tokens
+    if (next_state != UNMATCHED_STATE || skip_unmatched_tkn == false) {
+        qa.pushStack(next_state);
+        match_flag = true;
+        // check index for the first element inside array
+        if (type == KEY_ARRAY && qa.hasIndexConstraints()) {
+            if (qa.checkArrayCounter() == false) {
+                skip_arr_ele = true;
+            } else skip_arr_ele = false;
+        }
+    }
+}
+
+// TODO: remove skip_unmatched_tkn, and generate different code during compilation
+void SerialBitmap::processOpenBracket(QueryAutomaton& qa, int type, bool& match_flag, bool& skip_arr_ele, bool& skip_unmatched_tkn) {
+    match_flag = false;
+    int next_state = UNMATCHED_STATE;
+    if (skip_unmatched_tkn == false && skip_arr_ele == true) {
+        // simply set next_state as unmatched state and change skip_arr_ele back to false
+        skip_arr_ele = false;
+    } else {
+        if (qa.mCurState != UNMATCHED_STATE) {
+            next_state = qa.getNextStateNoKey(type);
+        }
+    }
+    if (skip_unmatched_tkn == false || (next_state != UNMATCHED_STATE && skip_arr_ele == false)) {
+        qa.pushStack(next_state);
+        match_flag = true;
+        if (type == ARRAY && qa.hasIndexConstraints()) {
+            if (qa.checkArrayCounter() == false) {
+                skip_arr_ele = true;
+            } else skip_arr_ele = false;
+        }
+    }
+}
+
+// TODO: remove skip_unmatched_tkn, and generate different code during compilation
+void SerialBitmap::processCloseBracket(QueryAutomaton& qa, bool& skip_arr_ele) {
+    if (qa.hasIndexConstraints() && skip_arr_ele == true) {
+        skip_arr_ele = false;
+    }
+    qa.popStack();
+}
+
+void SerialBitmap::processArrayMember(QueryAutomaton& qa, long& last_comma_pos, bool& skip_arr_ele) {
+    qa.addArrayCounter();
+    if (qa.checkArrayCounter() == false) {
+        skip_arr_ele = true;
+    } else skip_arr_ele = false;
+
+}
+
+void SerialBitmap::processCandidateArrayInterval(QueryAutomaton& qa, long& word_id, unsigned long& commabit, long& last_comma_pos, bool& skip_arr_ele) {
+    if (qa.hasIndexConstraints()) {
+        // check if needs to process the candidate array member
+        if (last_comma_pos > -1) {
+            // process the previous comma, previous interval is a part of array members
+            processArrayMember(qa, last_comma_pos, skip_arr_ele);
+            last_comma_pos = -1;
+        }
+        // quick check for current interval
+        int cnt_comma = 0;
+        while (commabit) {
+            if (cnt_comma == 1) {
+                ++cnt_comma;
+                break;
+            }
+            long cur_comma_pos = (word_id) * 64 + __builtin_ctzll(commabit);
+            last_comma_pos = cur_comma_pos;
+            ++cnt_comma;
+            commabit = commabit & (commabit - 1);
+        }
+        // current interval is a part of array members
+        // otherwise, the only comma within this interval will be verified and processed when meeting the right symbol
+        if (cnt_comma > 1) {
+            last_comma_pos = -1;
+            while (commabit) {
+                qa.addArrayCounter();
+                if (qa.checkArrayCounter() == false) {
+                    skip_arr_ele = true;
+                } else skip_arr_ele = false;
+                long cur_comma_pos = (word_id) * 64 + __builtin_ctzll(commabit);
+                last_comma_pos = cur_comma_pos;
+                commabit = commabit & (commabit - 1);
+            }
+        }
+    }
+    else if (last_comma_pos > -1) {
+        // previous interval is not a part of array members
+        last_comma_pos = -1;
+    }
+}
+
+void SerialBitmap::indexConstruction() {
+    struct timeval begin,end;
+    double duration;
+    gettimeofday(&begin,NULL);
+    // vectors for structural characters
+    __m256i v_quote = _mm256_set1_epi8(0x22);
+    __m256i v_colon = _mm256_set1_epi8(0x3a);
+    __m256i v_escape = _mm256_set1_epi8(0x5c);
+    __m256i v_lbrace = _mm256_set1_epi8(0x7b);
+    __m256i v_rbrace = _mm256_set1_epi8(0x7d);
+    __m256i v_comma = _mm256_set1_epi8(0x2c); 
+    __m256i v_lbracket = _mm256_set1_epi8(0x5b);
+    __m256i v_rbracket = _mm256_set1_epi8(0x5d);
+	
+    // variables for saving temporary results in the first four steps
+    unsigned long colonbit0, quotebit0, escapebit0, stringbit0, lbracebit0, rbracebit0, commabit0, lbracketbit0, rbracketbit0;
+    unsigned long colonbit, quotebit, escapebit, stringbit, lbracebit, rbracebit, commabit, lbracketbit, rbracketbit;
+    unsigned long str_mask;
+	
+    // variables for saving temporary results in the last step
+    unsigned long lb_mask, rb_mask, cb_mask;
+    unsigned long lb_bit, rb_bit, cb_bit;
+    unsigned long first, second;
+    int cur_level = -1;
+    int max_positive_level = -1;
+	
+    // variables for saving context information among different words
+    long top_word = -1;
+    uint64_t prev_iter_ends_odd_backslash = 0ULL;
+    uint64_t prev_iter_inside_quote = 0ULL;
+    const uint64_t even_bits = 0x5555555555555555ULL;
+    const uint64_t odd_bits = ~even_bits; 
+    long last_colon_pos = -1;
+    unsigned long last_quote_bit = 0;
+    long last_comma_pos = -1;
+    bool skip_key = false;
+    bool skip_follow_key = false;
+    bool key_matched = true;
+    int reset_level = -1;
+    bool m_stack[100];
+    int top_m_stack = -1;
+    char* content = new char[90000000]; //90000000
+    mText = content;
+//    cout<<"enter into execution "<<mDepth<<endl;
+    string output;
+    long output_size = 0;
+    int cnt = 0;
+    int temp_cnt = 0;
+//    cout<<"create an automaton instance"<<endl;
+    QueryAutomaton qa;// = new QueryAutomaton();
+//    cout<<"initialize an automaton"<<endl;
+    qa.init();
+//    cout<<"generate an automaton"<<endl;
+    generateAutomaton(qa);
+//    cout<<"finish automaton generation"<<endl;
+    bool skip_unmatched_tkn = false;
+    bool skip_arr_ele = false;
+    // for debug only
+    int skipped_arr_ele = 0;
+    /*struct timeval begin,end;
+    double duration;
+    gettimeofday(&begin,NULL);*/
+    unsigned long end_value_bit = 0;
+    unsigned long comma_brace_bit = 0;
+
+    // for array primitive testing
+    long prim_start = -1;
+    mBase = mRecord;
+
+    for (long j = 0; j < mNumTmpWords; ++j) {
+        colonbit = 0, quotebit = 0, escapebit = 0, stringbit = 0, lbracebit = 0, rbracebit = 0, commabit = 0, lbracketbit = 0, rbracketbit = 0;
+        unsigned long i = j * 32; 
+        // step 1: build structural character bitmaps
+        __m256i v_text = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(mRecord + i));
+        colonbit = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text, v_colon));
+        quotebit = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text, v_quote)); 
+        escapebit = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text, v_escape)); 
+        lbracebit  = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text, v_lbrace));
+        rbracebit  = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text, v_rbrace));
+        commabit = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text, v_comma));
+	lbracketbit = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text, v_lbracket));
+	rbracketbit = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text, v_rbracket));
+        // first half of the word (lowest 32 bits)
+        if(j % 2 == 0) {
+            colonbit0 = colonbit;
+            quotebit0 = quotebit;
+            escapebit0 = escapebit;
+            lbracebit0 = lbracebit;
+            rbracebit0 = rbracebit;
+            commabit0 = commabit;
+            lbracketbit0 = lbracketbit;
+            rbracketbit0 = rbracketbit;
+            continue;
+        } else {
+            // highest 32 bits inside a word
+            colonbit = (colonbit << 32) | colonbit0;
+            quotebit = (quotebit << 32) | quotebit0;
+            escapebit = (escapebit << 32) | escapebit0;
+            lbracebit = (lbracebit << 32) | lbracebit0;
+            rbracebit = (rbracebit << 32) | rbracebit0;
+            commabit = (commabit << 32) | commabit0;
+            lbracketbit = (lbracketbit << 32) | lbracketbit0;
+            rbracketbit = (rbracketbit << 32) | rbracketbit0;
+
+            // step 2: update structural quote bitmaps
+            uint64_t bs_bits = escapebit;
+            uint64_t start_edges = bs_bits & ~(bs_bits << 1);
+            int64_t even_start_mask = even_bits ^ prev_iter_ends_odd_backslash;
+            uint64_t even_starts = start_edges & even_start_mask;
+            uint64_t odd_starts = start_edges & ~even_start_mask;
+            uint64_t even_carries = bs_bits + even_starts;
+            int64_t odd_carries;
+            bool iter_ends_odd_backslash = __builtin_uaddll_overflow(bs_bits, odd_starts,
+                (unsigned long long *)(&odd_carries));
+            odd_carries |= prev_iter_ends_odd_backslash;
+            prev_iter_ends_odd_backslash = iter_ends_odd_backslash ? 0x1ULL : 0x0ULL;
+            uint64_t even_carry_ends = even_carries & ~bs_bits;
+            uint64_t odd_carry_ends = odd_carries & ~bs_bits;
+            uint64_t even_start_odd_end = even_carry_ends & odd_bits;
+            uint64_t odd_start_even_end = odd_carry_ends & even_bits;
+            uint64_t odd_ends = even_start_odd_end | odd_start_even_end;
+            int64_t quote_bits = quotebit & ~odd_ends;
+           // mQuoteBitmap[++top_word] = quote_bits;
+            ++top_word;
+            mBase = mBase + 64;
+ 
+            // step 3: build string mask bitmaps
+            str_mask = _mm_cvtsi128_si64(_mm_clmulepi64_si128(
+                _mm_set_epi64x(0ULL, quote_bits), _mm_set1_epi8(0xFFu), 0));
+            str_mask ^= prev_iter_inside_quote;
+            prev_iter_inside_quote = static_cast<uint64_t>(static_cast<int64_t>(str_mask) >> 63);
+	
+            // step 4: update structural character bitmaps
+            unsigned long tmp = (~str_mask);
+            colonbit = colonbit & tmp;
+            lbracebit = lbracebit & tmp;
+            rbracebit = rbracebit & tmp;
+            commabit = commabit & tmp;
+            lbracketbit = lbracketbit & tmp;
+            rbracketbit = rbracketbit & tmp;
+	
+            // step 5: generate leveled bitmaps
+            //if (mArraySupported) {
+                lb_mask = lbracebit | lbracketbit;
+                rb_mask = rbracebit | rbracketbit;
+            /*} else {
+                lb_mask = lbracebit;
+                rb_mask = rbracebit;
+            }*/
+            cb_mask = lb_mask | rb_mask;
+            lb_bit = lb_mask & (-lb_mask);
+            rb_bit = rb_mask & (-rb_mask);
+            if (!cb_mask) {
+                if (temp_cnt == 0 || skip_unmatched_tkn == false) {
+                    if (colonbit) {
+                        // previous interval is not a part of array members
+                        last_comma_pos = -1;
+                        unsigned long t_quote_bit = quote_bits;// & (colonbit ^ (colonbit - 1));
+                        unsigned long t_comma_bit = commabit;
+                        bool is_right_brace = false;
+                        processKeyPriPairs(qa, top_word, colonbit, last_colon_pos, output, output_size, t_quote_bit, last_quote_bit, end_value_bit, t_comma_bit, is_right_brace);
+                    } else {
+                        while (commabit) {
+                            if (prim_start > -1) {
+                                // prim_start = -1;
+                                long prim_end = (top_word) * 64 + __builtin_ctzll(commabit) - 1;
+                                long text_length = prim_end - prim_start + 1;
+                                if (text_length > 0) {
+                                    long temp_len = text_length;
+                                    char* temp_start = mBase;//mRecord + prim_start;
+                                    char* ttext = mText;
+                                    while (temp_len > 0) {
+                                        __m256i v = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(temp_start));
+                                        _mm256_storeu_si256(reinterpret_cast<__m256i *>(ttext), v);
+                                        ttext += 32;
+                                        temp_len -= 32;
+                                        temp_start += 32;
+                                    }
+                        //         memcpy(mText, mRecord + last_colon_pos + 1, text_length);
+                                    mText[text_length + 1] = '\0';
+                                    //cout<<"mText "<<mText<<endl;       
+                                }
+                                prim_start = prim_end + 2;
+                            } else prim_start = (top_word) * 64 + __builtin_ctzll(commabit) + 1;
+                            commabit = commabit & (commabit - 1); 
+                        } 
+                       // processCandidateArrayInterval(qa, top_word, commabit, last_comma_pos, skip_arr_ele);
+                         /*if (qa.hasIndexConstraints()) {
+                             // check if needs to update an array counter
+                             if (last_comma_pos > -1) {
+                                 // process the previous comma, previous interval is a part of array members
+                                 qa.addArrayCounter();
+                                 if (qa.checkArrayCounter() == false) {
+                                     skip_arr_ele = true;
+                                 } else skip_arr_ele = false;
+                                 last_comma_pos = -1; 
+                             }
+                             // quick check for current interval
+                             int cnt_comma = 0;
+                             while (commabit) {
+                                 if (cnt_comma == 1) {
+                                     ++cnt_comma;
+                                     break;
+                                 }
+                                 long cur_comma_pos = (top_word) * 64 + __builtin_ctzll(commabit);
+                                 last_comma_pos = cur_comma_pos;
+                                 ++cnt_comma;
+                                 commabit = commabit & (commabit - 1);
+                             }
+                             // current interval is a part of array members
+                             // otherwise, the only comma within this interval will be verified and processed when meeting the right symbol
+                             if (cnt_comma > 1) {
+                                 last_comma_pos = -1;
+                                 while (commabit) {
+                                     qa.addArrayCounter();
+                                     if (qa.checkArrayCounter() == false) {
+                                         skip_arr_ele = true;
+                                         ++skipped_arr_ele;
+                                     } else skip_arr_ele = false;
+                                     long cur_comma_pos = (top_word) * 64 + __builtin_ctzll(commabit);
+                                     last_comma_pos = cur_comma_pos;
+                                     commabit = commabit & (commabit - 1);
+                                 }
+                             }
+                         }
+                         else if (last_comma_pos > -1) {
+                             // previous interval is not a part of array members
+                             last_comma_pos = -1;
+                         }*/
+	            }
+	        }
+            } else {
+                first = 1;
+                while (cb_mask || first) {
+                    if (!cb_mask) {
+                        second = 1UL<<63;
+                    } else {
+                        cb_bit = cb_mask & (-cb_mask);
+                        second = cb_bit;
+                    }
+                    // (temp_cnt == 0 && skip_arr_ele == true)
+                    if ((temp_cnt > 0 ) && skip_unmatched_tkn == true) {
+                        if (cb_mask) {
+                   //         cout<<"temp cnt "<<temp_cnt<<" stack size "<<qa.getStackSize()<<" cur state "<<qa.mCurState<<endl;
+                            if (cb_bit & lb_mask) {
+                                ++temp_cnt;
+                            }
+                            else {
+                                --temp_cnt;
+                                if (temp_cnt == 0) {
+                                    skip_arr_ele = false;
+                                }
+                            }
+                            // else cout<<"we don't know"<<cb_bit<<endl; 
+                        }
+                    } else {
+                        unsigned long mask = second - first;
+                        if (!cb_mask) mask = mask | second;
+                        unsigned long colon_mask = mask & colonbit;
+                   //     mQuoteBitmap[top_word] = mQuoteBitmap[top_word] & mask;
+                        if (colon_mask) {
+                            last_comma_pos = -1;
+                            unsigned long t_quote_bit = quote_bits;// & (colon_mask ^ (colon_mask - 1));
+                            unsigned long t_comma_mask = mask & commabit;
+                            bool is_right_brace = false;
+                            processKeyPriPairs(qa, top_word, colon_mask, last_colon_pos, output, output_size, t_quote_bit, last_quote_bit, end_value_bit, t_comma_mask, is_right_brace);
+                        } else {
+                            unsigned long comma_mask = mask & commabit;
+                            while (comma_mask) {
+                                if (prim_start > -1) {
+                                    // prim_start = -1;
+                                    long prim_end = (top_word) * 64 + __builtin_ctzll(comma_mask) - 1;
+                                    long text_length = prim_end - prim_start + 1;
+                                    if (text_length > 0) {
+                                        long temp_len = text_length;
+                                        char* temp_start = mBase;//mRecord + prim_start;
+                                        char* ttext = mText;
+                                        while (temp_len > 0) {
+                                            __m256i v = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(temp_start));
+                                            _mm256_storeu_si256(reinterpret_cast<__m256i *>(ttext), v);
+                                            ttext += 32;
+                                            temp_len -= 32;
+                                            temp_start += 32;
+                                        }
+                        //         memcpy(mText, mRecord + last_colon_pos + 1, text_length);
+                                        mText[text_length + 1] = '\0';
+                                        //cout<<"mText "<<mText<<endl;
+                                    }
+                                    prim_start = prim_end + 2;
+                                } else prim_start = (top_word) * 64 + __builtin_ctzll(comma_mask) + 1;
+                                comma_mask = comma_mask & (comma_mask - 1);
+                            }
+                       //     processCandidateArrayInterval(qa, top_word, comma_mask, last_comma_pos, skip_arr_ele);
+                            /*if (qa.hasIndexConstraints()) {
+                                // check if needs to update an array counter
+                                if (last_comma_pos > -1) {
+                                    // process the previous comma, previous interval is a part of array members
+                                    qa.addArrayCounter();
+                                    if (qa.checkArrayCounter() == false) {
+                                        skip_arr_ele = true;
+                                    } else skip_arr_ele = false;
+                                    last_comma_pos = -1;
+                                }
+                                unsigned long comma_mask = mask & commabit;
+                                // quick check for current interval
+                                int cnt_comma = 0;
+                                while (comma_mask) {
+                                    if (cnt_comma == 1) {
+                                        ++cnt_comma;
+                                        break;
+                                    }
+                                    long cur_comma_pos = (top_word) * 64 + __builtin_ctzll(comma_mask);
+                                    last_comma_pos = cur_comma_pos;
+                                    ++cnt_comma;
+                                    comma_mask = comma_mask & (comma_mask - 1);
+                                }
+                                // current interval is a part of array members
+                                // otherwise, the only comma within this interval will be verified and processed when meeting the right symbol
+                                if (cnt_comma > 1) {
+                                    last_comma_pos = -1;
+                                    while (comma_mask) {
+                                       qa.addArrayCounter();
+                                       if (qa.checkArrayCounter() == false) {
+                                           skip_arr_ele = true;
+                                       } else skip_arr_ele = false;
+                                       long cur_comma_pos = (top_word) * 64 + __builtin_ctzll(comma_mask);
+                                       last_comma_pos = cur_comma_pos;
+                                       comma_mask = comma_mask & (comma_mask - 1);
+                                    }
+                                }
+                            } else if (last_comma_pos > -1) {
+                                // previous interval is not a part of array members
+                                last_comma_pos = -1;
+                            }*/
+                        }
+                        if (cb_mask) {
+                            if (last_colon_pos > -1) {
+                                // comma in previous interval doesn't represent array member
+                                if (cb_bit & lb_mask) {
+                                    // comma in previous interval doesn't represent array member
+                                    last_comma_pos = -1;
+                                    int type = KEY_OBJECT;
+                                    if (cb_bit & lbracketbit) type = KEY_ARRAY;
+                                    bool match_flag = false;
+                                    //unsigned long t_quote_bit = quote_bits & (colonbit ^ (colonbit - 1);
+                                    processKeyBracket(qa, type, last_colon_pos, match_flag, skip_arr_ele, skip_unmatched_tkn, last_quote_bit);
+                                    if (match_flag == false) ++temp_cnt;
+                                    if (type == KEY_ARRAY) {
+                                        prim_start = (top_word) * 64 + __builtin_ctzll(cb_bit) + 1;
+                                    } else prim_start = -1;
+                                } else if (cb_bit & rb_mask) {
+                                    // comma in previous interval represents an array member.
+                                    if (last_comma_pos > -1 && (cb_bit & rbracketbit)) {
+                                        processArrayMember(qa, last_comma_pos, skip_arr_ele);
+                                        /*qa.addArrayCounter();
+                                        if (qa.checkArrayCounter() == false) {
+                                            skip_arr_ele = true;
+                                        } else skip_arr_ele = false;*/
+                                    }
+                                    last_comma_pos = -1;
+                                    if (prim_start > -1) {
+                                            long prim_end = (top_word) * 64 + __builtin_ctzll(cb_bit) - 1;
+                                            long text_length = prim_end - prim_start + 1;
+                                            if (text_length > 0) {
+                                                long temp_len = text_length;
+                                                char* temp_start = mBase;//mRecord + prim_start;
+                                                char* ttext = mText;
+                                                while (temp_len > 0) {
+                                                    __m256i v = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(temp_start));
+                                                    _mm256_storeu_si256(reinterpret_cast<__m256i *>(ttext), v);
+                                                    ttext += 32;
+                                                    temp_len -= 32;
+                                                    temp_start += 32;
+                                                }
+                                     //         memcpy(mText, mRecord + last_colon_pos + 1, text_length);
+                                                mText[text_length + 1] = '\0';
+                                                //cout<<"mTextz "<<mText<<endl;
+                                            }
+                                            prim_start = -1;
+                                    } //else prim_start = (top_word) * 64 + __builtin_ctzll(cb_bit) + 1; 
+
+                                    rb_bit = cb_bit & rb_mask;
+                                    unsigned long t_quote_bit = quote_bits;
+                                    unsigned long t_rb_bit = rb_bit;
+                                    ///cout<<"}"<<endl;
+                                    end_value_bit = t_rb_bit;
+                                    bool is_right_brace = true; 
+                                    processKeyPriPairs(qa, top_word, rb_bit, last_colon_pos, output, output_size, t_quote_bit, last_quote_bit, end_value_bit,t_rb_bit, is_right_brace); 
+                                    processCloseBracket(qa, skip_arr_ele);
+                                    prim_start = -1;
+                                } 
+                                last_colon_pos = -1;
+                            } else {
+                                if (cb_bit & lb_mask) {
+                                    if (last_comma_pos > -1) {
+                                        processArrayMember(qa, last_comma_pos, skip_arr_ele);
+                                        /*qa.addArrayCounter();
+                                        if (qa.checkArrayCounter() == false) {
+                                            skip_arr_ele = true;
+                                        } else skip_arr_ele = false;*/
+                                        last_comma_pos = -1;
+                                    }
+                                    int type = OBJECT;
+                                    if (cb_bit & lbracketbit) type = ARRAY;
+                                    bool match_flag = false;
+                                    processOpenBracket(qa, type, match_flag, skip_arr_ele, skip_unmatched_tkn);
+                                    if (match_flag == false) ++temp_cnt;
+                                    if (type == ARRAY) {
+                                        /*if (prim_start > -1) {
+                                            long prim_end = (top_word) * 64 + __builtin_ctzll(cb_bit) - 1;
+                                            long text_length = prim_end - prim_start + 1;
+                                            if (text_length > 0) {
+                                                long temp_len = text_length;
+                                                char* temp_start = mRecord + prim_start;
+                                                char* ttext = mText;
+                                                while (temp_len > 0) {
+                                                    __m256i v = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(temp_start));
+                                                    _mm256_storeu_si256(reinterpret_cast<__m256i *>(ttext), v);
+                                                    ttext += 32;
+                                                    temp_len -= 32;
+                                                    temp_start += 32;
+                                                }
+                                     //         memcpy(mText, mRecord + last_colon_pos + 1, text_length);
+                                                mText[text_length + 1] = '\0';
+                                                cout<<"mTextz "<<mText<<endl;
+                                            }
+                                            prim_start = prim_end + 2;
+                                        } else prim_start = (top_word) * 64 + __builtin_ctzll(cb_bit) + 1;*/
+                                        prim_start = (top_word) * 64 + __builtin_ctzll(cb_bit) + 1;
+                                    } else prim_start = -1;
+                                } else if (cb_bit & rb_mask) {
+                                    if (last_comma_pos > -1 && (cb_bit & rbracketbit)) {
+                                        processArrayMember(qa, last_comma_pos, skip_arr_ele);
+                                        /*qa.addArrayCounter();
+                                        if (qa.checkArrayCounter() == false) {
+                                            skip_arr_ele = true;
+                                        } else skip_arr_ele = false;*/
+                                    }
+                                    last_comma_pos = -1;
+                                    if (prim_start > -1) {
+                                            long prim_end = (top_word) * 64 + __builtin_ctzll(cb_bit) - 1;
+                                            long text_length = prim_end - prim_start + 1;
+                                            if (text_length > 0) {
+                                                long temp_len = text_length;
+                                                char* temp_start = mBase;//mRecord + prim_start;
+                                                char* ttext = mText;
+                                                while (temp_len > 0) {
+                                                    __m256i v = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(temp_start));
+                                                    _mm256_storeu_si256(reinterpret_cast<__m256i *>(ttext), v);
+                                                    ttext += 32;
+                                                    temp_len -= 32;
+                                                    temp_start += 32;
+                                                }
+                                     //         memcpy(mText, mRecord + last_colon_pos + 1, text_length);
+                                                mText[text_length + 1] = '\0';
+                                                //cout<<"mTextz "<<mText<<endl;
+                                            }
+                                            prim_start = -1;
+                                    }
+                                    processCloseBracket(qa, skip_arr_ele);
+                                    prim_start = -1;
+                                } 
+                              }
+                            }
+                    }
+                    if (cb_mask) {
+                        first = second;
+                        cb_mask = cb_mask & (cb_mask - 1);
+                    } else {
+                        first = 0;
+                    }
+                }
+	    }
+            mPrevQuoteBitmap = quote_bits;
+//            cout<<"previous "<<mPrevQuoteBitmap<<endl;
+        }
+    }
+//    printf("syntax size %d query state %d %d\n", syntaxStackSize(&sa.syntax_stack), sa.query_state, sa.query_stack.top_item);
+    printf("size of 2-tuple list before filtering %d\n", output_size);
+    // if (mDepth == MAX_LEVEL) mDepth = max_positive_level;
+    cout<<"cur level "<<cur_level<<" cnt "<<temp_cnt<<" stack size "<<qa.getStackSize()<<endl;
+///    cout<<"skipped elements"<<skipped_arr_ele<<" "<<(697440 - skipped_arr_ele)<<endl;
+    free(content);
+    gettimeofday(&end,NULL);
+    duration=1000000*(end.tv_sec-begin.tv_sec)+end.tv_usec-begin.tv_usec;
+    double time = duration / (double) 1000000;
+///    cout<<"execution time is "<<time<<endl;
+//    delete qa;
+}

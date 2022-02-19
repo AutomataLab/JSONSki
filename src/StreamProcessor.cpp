@@ -25,19 +25,10 @@ using namespace std;
 StreamProcessor::StreamProcessor(string query) {
     JSONPathParser::updateQueryAutomaton(query, this->qa);
     this->mOutput.clear();
-    this->mOutputSize = 0;
+    this->mNumMatches = 0;
     this->mText = new char[MAX_TEXT_LENGTH];
     init(); 
 }
-
-/* StreamProcessor::StreamProcessor(char* record, long record_length, QueryAutomaton& qa) {
-    this->setRecord(record, record_length);
-    this->qa = qa;
-    this->mOutput.clear();
-    this->mOutputSize = 0;
-    this->mText = new char[MAX_TEXT_LENGTH];
-    init();
-} */
 
 void StreamProcessor::init() {
     structural_table =
@@ -1041,7 +1032,7 @@ void StreamProcessor::object(long& pos, bitmap& bm) {
                 }
             }
         } else if (qa.isAccept(next_state) == true) { //ACCEPT
-            ++mOutputSize;
+            ++mNumMatches;
             long start_pos = pos;
             switch (element_type) {
                 case OBJECT: {
@@ -1103,7 +1094,7 @@ void StreamProcessor::array(long& pos, bitmap& bm) {
         }
         while (hasMoreElements(pos) && num_elements > 0) {
             if (qa.isAccept(qa.mCurState) == true) {
-                ++mOutputSize;
+                ++mNumMatches;
                 long start_pos = pos;
                 bool break_while = false;
                 int value_type = element_type;
@@ -1179,7 +1170,7 @@ void StreamProcessor::array(long& pos, bitmap& bm) {
     } else {
         while (hasMoreElements(pos)) {
             if (qa.isAccept(qa.mCurState) == true) {
-                ++mOutputSize;
+                ++mNumMatches;
                 long start_pos = pos;
                 bool break_while = false;
                 int value_type = element_type;
@@ -1244,8 +1235,8 @@ char StreamProcessor::getNextNonEmptyCharacter(long& pos) {
     return mRecord[pos];
 }
 
-long StreamProcessor::getNumOfOutputs() {
-    return mOutputSize;
+long StreamProcessor::getOutputMatchesNum() {
+    return mNumMatches;
 }
 
 string StreamProcessor::runQuery(Record* rec) {

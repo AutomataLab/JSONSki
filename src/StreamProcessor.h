@@ -62,18 +62,15 @@ struct JumpInfo {
 
 class StreamProcessor {
   public:
-    // mainly used for stream with multiple small records
+    // initialization based on query
     StreamProcessor(string query);
-    // mainly used for a single large record
-    // StreamProcessor(char* record, long record_length, QueryAutomaton& qa);
     ~StreamProcessor();
-    // void setRecord(char* record, long record_length);
-    long getNumOfOutputs();
-    void init();
-    // get query execution results
+    long getOutputMatchesNum();
+    // execute query on one single JSON record
     string runQuery(Record* rec);
 
   private:
+    void init();
     void setRecordText(char* rec_text, long record_length);
     char getNextNonEmptyCharacter(long& pos);
     void object(long& pos, bitmap& bm);
@@ -180,7 +177,7 @@ class StreamProcessor {
     char* mText;
     long mWordId;
     QueryAutomaton qa;
-    long mOutputSize;
+    long mNumMatches;
     string mOutput;
 };
 #endif

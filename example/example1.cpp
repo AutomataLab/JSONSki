@@ -1,5 +1,5 @@
 #include "../src/RecordLoader.h"
-#include "../src/JSONSki.h"
+#include "../src/StreamProcessor.h"
 
 int main() {
     char* file_path = "../dataset/twitter_sample_large_record.json";
@@ -13,7 +13,8 @@ int main() {
 
     string query = "$[*].entities.urls[*].url";
     cout<<"\nstart executing query "<<query<<endl;
-    string output = JSONSki::runQuery(rec, query);
+    StreamProcessor processor(query);
+    string output = processor.runQuery(rec);
     cout<<"finish query execution"<<endl;
     cout<<"matches are: "<<output<<endl;
     return 0;

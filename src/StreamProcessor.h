@@ -14,6 +14,7 @@
 #include <unordered_map>
 #include <map>
 #include "QueryAutomaton.h"
+#include "Records.h"
 using namespace std;
 
 #define SUCCESS 1001
@@ -63,15 +64,16 @@ class StreamProcessor {
     // mainly used for stream with multiple small records
     StreamProcessor(QueryAutomaton& qa);
     // mainly used for a single large record
-    StreamProcessor(char* record, long record_length, QueryAutomaton& qa);
+    // StreamProcessor(char* record, long record_length, QueryAutomaton& qa);
     ~StreamProcessor();
-    void setRecord(char* record, long record_length);
+    // void setRecord(char* record, long record_length);
     long getNumOfOutputs();
     void init();
     // get query execution results
-    string runQuery();
+    string runQuery(Record* rec);
 
   private:
+    void setRecordText(char* rec_text, long record_length);
     char getNextNonEmptyCharacter(long& pos);
     void object(long& pos, bitmap& bm);
     void array(long& pos, bitmap& bm);

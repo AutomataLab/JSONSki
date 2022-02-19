@@ -3,7 +3,7 @@ EXEC1 = $(DIR)/example1
 EXEC2 = $(DIR)/example2
 EXEC3 = $(DIR)/example3
 EXEC4 = $(DIR)/example4
-TARGET = $(EXEC1) $(EXEC2) $(EXEC3)
+TARGET = $(EXEC2) $(EXEC3)
 all: $(TARGET)
 
 CC = g++-7

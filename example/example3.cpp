@@ -25,14 +25,9 @@ int main() {
     int num_recs = record_set->size();
     string output = "";
     for (int i = 0; i < num_recs; i++) {
-        // TODO: merge the following three functions into one: processor.runQuery((*record_set[i]))
-        // cout<<(*record_set)[i]->text<<" "<<i<<endl;
-        processor.setRecord((*record_set)[i]->text + (*record_set)[i]->rec_start_pos, (*record_set)[i]->rec_length);
-        processor.init();
-        output.append(processor.runQuery());
+        output.append(processor.runQuery((*record_set)[i]));
     }
     cout<<"finish query execution"<<endl;
     cout<<"matches are: "<<output<<endl;
     return 0;
 }
-

@@ -30,14 +30,14 @@ StreamProcessor::StreamProcessor(QueryAutomaton& qa) {
     init(); 
 }
 
-StreamProcessor::StreamProcessor(char* record, long record_length, QueryAutomaton& qa) {
+/* StreamProcessor::StreamProcessor(char* record, long record_length, QueryAutomaton& qa) {
     this->setRecord(record, record_length);
     this->qa = qa;
     this->mOutput.clear();
     this->mOutputSize = 0;
     this->mText = new char[MAX_TEXT_LENGTH];
     init();
-}
+} */
 
 void StreamProcessor::init() {
     structural_table =
@@ -76,8 +76,8 @@ StreamProcessor::~StreamProcessor()
     }
 }
 
-void StreamProcessor::setRecord(char* record, long length) {
-    this->mRecord = record;
+void StreamProcessor::setRecordText(char* rec_text, long length) {
+    this->mRecord = rec_text;
     this->mRecordLength = length;
     this->mNumTmpWords = length / 32;
     this->mNumWords = length / 64; 
@@ -1248,7 +1248,9 @@ long StreamProcessor::getNumOfOutputs() {
     return mOutputSize;
 }
 
-string StreamProcessor::runQuery() {
+string StreamProcessor::runQuery(Record* rec) {
+    setRecordText(rec->text + rec->rec_start_pos, rec->rec_length);
+    init();
     long cur_pos = 0;
     char ch = getNextNonEmptyCharacter(cur_pos);
     bitmap bm;

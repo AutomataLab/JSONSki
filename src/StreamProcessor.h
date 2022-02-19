@@ -13,6 +13,7 @@
 #include <immintrin.h>
 #include <unordered_map>
 #include <map>
+#include "JSONPathParser.h"
 #include "QueryAutomaton.h"
 #include "Records.h"
 using namespace std;
@@ -62,7 +63,7 @@ struct JumpInfo {
 class StreamProcessor {
   public:
     // mainly used for stream with multiple small records
-    StreamProcessor(QueryAutomaton& qa);
+    StreamProcessor(string query);
     // mainly used for a single large record
     // StreamProcessor(char* record, long record_length, QueryAutomaton& qa);
     ~StreamProcessor();

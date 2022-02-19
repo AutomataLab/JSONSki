@@ -22,8 +22,8 @@
 
 using namespace std;
 
-StreamProcessor::StreamProcessor(QueryAutomaton& qa) {
-    this->qa = qa;
+StreamProcessor::StreamProcessor(string query) {
+    JSONPathParser::updateQueryAutomaton(query, this->qa);
     this->mOutput.clear();
     this->mOutputSize = 0;
     this->mText = new char[MAX_TEXT_LENGTH];

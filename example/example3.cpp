@@ -1,5 +1,4 @@
 #include "../src/RecordLoader.h"
-#include "../src/JSONPathParser.h"
 #include "../src/StreamProcessor.h"
 
 int main() {
@@ -13,14 +12,8 @@ int main() {
     cout<<"finish loading a sequence of small records"<<endl;
 
     string query = "$.entities.urls[*].url";
-    cout<<"start generating query automaton for query "<<query<<endl;
-    QueryAutomaton qa;
-    // update query automaton
-    JSONPathParser::updateQueryAutomaton(query, qa);
-    cout<<"finish generating query automaton"<<endl;
-
     cout<<"\nstart executing query "<<query<<endl;
-    StreamProcessor processor(qa);
+    StreamProcessor processor(query);
     // process small records one by one
     int num_recs = record_set->size();
     string output = "";

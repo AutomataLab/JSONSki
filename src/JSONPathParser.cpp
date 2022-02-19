@@ -16,7 +16,7 @@ void JSONPathParser::updateQueryAutomaton(string query, QueryAutomaton &qa) {
                 } else if (ch == '[') {
                     lexer_state = 2;
                     qa.updateStateTransInfo(query_state, false, NONE, ARRAY, NULL, query_state + 1);
-                    cout<<"("<<query_state<<", false, NONE, ARRAY, NULL, "<<(query_state + 1)<<")"<<endl;
+                    // cout<<"("<<query_state<<", false, NONE, ARRAY, NULL, "<<(query_state + 1)<<")"<<endl;
                     ++query_state;
                 }
                 break;
@@ -34,30 +34,25 @@ void JSONPathParser::updateQueryAutomaton(string query, QueryAutomaton &qa) {
                         lexer_state = 2;
                         // current query state -> expected key-array pair
                         qa.updateStateTransInfo(query_state, false, ARRAY, NONE, buffer, query_state + 1);
-                        cout<<"("<<query_state<<", false, ARRAY, NONE, "<<buffer<<", "<<(query_state + 1)<<")"<<endl;
+                        // cout<<"("<<query_state<<", false, ARRAY, NONE, "<<buffer<<", "<<(query_state + 1)<<")"<<endl;
                         // state transition for [
                         qa.updateStateTransInfo(query_state + 1, false, NONE, NONE, NULL, query_state + 2);
-                        cout<<"("<<(query_state + 1)<<", false, NONE, NONE, NULL, "<<(query_state + 2)<<")"<<endl;
+                        // cout<<"("<<(query_state + 1)<<", false, NONE, NONE, NULL, "<<(query_state + 2)<<")"<<endl;
                         query_state += 2;
                         // break;
                     } else if (ch == '.') {
                         lexer_state = 1;
                         qa.updateStateTransInfo(query_state, false, OBJECT, NONE, buffer, query_state + 1);
-                        cout<<"("<<query_state<<", false, OBJECT, NONE, "<<buffer<<", "<<(query_state + 1)<<")"<<endl;
+                        // cout<<"("<<query_state<<", false, OBJECT, NONE, "<<buffer<<", "<<(query_state + 1)<<")"<<endl;
                         ++query_state;
                         // break;
-                    } else {
-                        cout<<"special character "<<ch<<" "<<i<<" "<<length<<endl;
-                    }
+                    } 
                 } else {
                     // output info
                     qa.updateStateTransInfo(query_state, false, PRIMITIVE, NONE, buffer, query_state + 1);
-                    cout<<"("<<query_state<<", false, PRIMITIVE, NONE, "<<buffer<<", "<<(query_state + 1)<<")"<<endl;
-                    /// cout<<"current state "<<query_state<<" key primitive inside object "<<buffer<<" next state "<<(query_state + 1)<<endl;
+                    // cout<<"("<<query_state<<", false, PRIMITIVE, NONE, "<<buffer<<", "<<(query_state + 1)<<")"<<endl;
                     qa.updateStateTransInfo(query_state + 1, true, NONE, NONE, NULL, query_state + 1);
-                    cout<<"("<<(query_state + 1)<<", true, NONE, NONE, NULL, "<<(query_state + 1)<<")"<<endl;
-                    /// cout<<"final state "<<(query_state + 1)<<endl;
-                    /// query_state += 2;
+                    // cout<<"("<<(query_state + 1)<<", true, NONE, NONE, NULL, "<<(query_state + 1)<<")"<<endl;
                 }
                 break;
             }
@@ -90,26 +85,24 @@ void JSONPathParser::updateQueryAutomaton(string query, QueryAutomaton &qa) {
                 }
                 if (end_idx > -1) {
                     qa.addIndexConstraints(query_state, start_idx, end_idx);
-                    cout<<"index constraints "<<start_idx<<" "<<end_idx<<" current state "<<query_state<<endl;
+                    // cout<<"index constraints "<<start_idx<<" "<<end_idx<<" current state "<<query_state<<endl;
                 }
                 if (i + 1 < length) {
                     ch = query[++i];
                     if (ch == '.') {
                         lexer_state = 1;
                         qa.updateStateTransInfo(query_state, false, NONE, OBJECT, NULL, query_state + 1);
-                        cout<<"("<<query_state<<", false, NONE, OBJECT, NULL, "<<(query_state + 1)<<")"<<endl;
+                        // cout<<"("<<query_state<<", false, NONE, OBJECT, NULL, "<<(query_state + 1)<<")"<<endl;
                     } else if (ch == '[') {
                         cout<<"additional ["<<endl;
                         lexer_state = 2;
                         qa.updateStateTransInfo(query_state, false, NONE, ARRAY, NULL, query_state + 1);
-                        cout<<"("<<query_state<<", false, NONE, ARRAY, NULL, "<<(query_state + 1)<<")"<<endl;
+                        // cout<<"("<<query_state<<", false, NONE, ARRAY, NULL, "<<(query_state + 1)<<")"<<endl;
                         ++query_state;
                     }
                 } else {
-                    // output info
-                    cout<<"array output"<<endl;
                     qa.updateStateTransInfo(query_state, true, NONE, PRIMITIVE, NULL, query_state);
-                    cout<<"("<<query_state<<", false, NONE, PRIMITIVE, NULL, "<<(query_state + 1)<<")"<<endl;
+                    // cout<<"("<<query_state<<", false, NONE, PRIMITIVE, NULL, "<<(query_state + 1)<<")"<<endl;
                 }
                 break;
             }

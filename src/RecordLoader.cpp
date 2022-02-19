@@ -4,14 +4,9 @@ using namespace std;
 
 #define MAX_PAD 64
 
-RecordLoader::RecordLoader(char* file_path){
-    mFilePath = file_path;
-}
-
-char* RecordLoader::loadRecord() {
-    char* file_name = mFilePath;
+Record* RecordLoader::loadSingleRecord(char* file_path) {
     unsigned long size;
-    FILE* fp = fopen (file_name,"rb");
+    FILE* fp = fopen (file_path,"rb");
     if (fp == NULL) {
         return NULL;
     }
@@ -22,40 +17,8 @@ char* RecordLoader::loadRecord() {
     if (posix_memalign(&p, 64, (size + MAX_PAD)*sizeof(char)) != 0) {
         cout<<"Fail to allocate memory space for input record."<<endl;
     }
-    char* record = (char*) p;
-    size_t load_size = fread (record, 1, size, fp);
-    if (load_size == 0) {
-        cout<<"Fail to load the input record into memory"<<endl;
-    }
-    int remain = 64 - (size % 64);
-    int counter = 0;
-    // pad the input data where its size can be divided by 64 
-    while (counter < remain)
-    {
-        record[size+counter] = 'd';
-        counter++;
-    }
-    record[size+counter]='\0';
-    fclose(fp);
-    return record;
-}
-
-Records* RecordLoader::loadSingleRecord() {
-    char* file_name = mFilePath;
-    unsigned long size;
-    FILE* fp = fopen (file_name,"rb");
-    if (fp == NULL) {
-        return NULL;
-    }
-    fseek (fp, 0, SEEK_END);
-    size = ftell(fp);
-    rewind(fp);
-    void* p;
-    if (posix_memalign(&p, 64, (size + MAX_PAD)*sizeof(char)) != 0) {
-        cout<<"Fail to allocate memory space for input record."<<endl;
-    }
-    char* record = (char*) p;
-    size_t load_size = fread (record, 1, size, fp);
+    char* record_text = (char*) p;
+    size_t load_size = fread (record_text, 1, size, fp);
     if (load_size == 0) {
         cout<<"Fail to load the input record into memory"<<endl;
     }
@@ -64,30 +27,23 @@ Records* RecordLoader::loadSingleRecord() {
     // pad the input data where its size can be divided by 64
     while (counter < remain)
     {
-        record[size+counter] = 'd';
+        record_text[size+counter] = 'd';
         counter++;
     }
-    record[size+counter]='\0';
+    record_text[size+counter]='\0';
     fclose(fp);
     // only one single record
-    Records* records = new Records();
-    records->text = record;
-    records->rec_start_pos = new long[1];
-    records->rec_start_pos[0] = 0;
-    records->rec_length = new long[1];
-    records->rec_length[0] = strlen(record);
-    records->num_records = 1;
-    return records;
+    Record* record = new Record();
+    record->text = record_text;
+    record->rec_start_pos = 0;
+    record->rec_length = strlen(record_text);
+    return record;
 }
 
-Records* RecordLoader::loadRecords() {
-    char* file_name = mFilePath;
-    FILE *fp = fopen(file_name, "r");
-    Records* records = new Records();
+RecordSet* RecordLoader::loadRecords(char* file_path) {
+    FILE *fp = fopen(file_path, "r");
+    RecordSet* rs = new RecordSet();
     if (fp) {
-        records->rec_start_pos = new long[MAX_NUM_RECORD];
-        records->rec_length = new long[MAX_NUM_RECORD];
-        records->num_records = 0;
         char line[MAX_RECORD_SIZE];
         string str;
         int start_pos = 0;
@@ -101,22 +57,30 @@ Records* RecordLoader::loadRecords() {
             }
             line[top] = '\0';
             if (strlen(line) > MIN_RECORD_SIZE) {
-                // records are placed consecutively on a single line, which has better performance comparing with putting them into a string array
+                // concating a sequence of record texts into one single string generates the best performance for indexing and querying
                 str.append(line);
-                records->rec_start_pos[records->num_records] = start_pos;
-                records->rec_length[records->num_records++] = strlen(line);
+                Record* record = new Record();
+                record->rec_start_pos = start_pos;
+                record->rec_length = strlen(line);
                 start_pos += strlen(line);
+                rs->recs.push_back(record);
+                ++rs->num_recs;
             }
         }
         void* p;
         if(posix_memalign(&p, 64, str.size()*sizeof(char)) != 0) {
             cout<<"Fail to allocate memory space for records from input file."<<endl;
         }
-        records->text = (char*) p;
-        strcpy(records->text, str.c_str());
+        for (int i = 0; i < rs->recs.size(); ++i) {
+            // all record objects points to the same input text which contacts a sequence of JSON records
+            rs->recs[i]->text = (char*) p;
+            if (i == 0) strcpy(rs->recs[0]->text, str.c_str());
+            // deconstructor in the last record object can delete input text
+            if (i < rs->recs.size() - 1) rs->recs[i]->can_delete_text = false;
+        }
         fclose(fp);
-        return records;
+        return rs;
     }
     cout<<"Fail open the file."<<endl;
-    return NULL;
+    return rs;
 }

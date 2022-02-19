@@ -1061,6 +1061,7 @@ void StreamProcessor::object(long& pos, bitmap& bm) {
             memcpy(mText, mRecord + start_pos, text_length);
             mText[text_length] = '\0';
             mOutput.append(mText);
+            mOutput.append(";");
             if (mRecord[pos] != '}') {
                 if (qa.getStackSize() == 0) return;
                 goToObjEnd(pos, bm);
@@ -1130,6 +1131,7 @@ void StreamProcessor::array(long& pos, bitmap& bm) {
                 memcpy(mText, mRecord + start_pos, text_length);
                 mText[text_length] = '\0';
                 mOutput.append(mText);
+                mOutput.append(";");
                 if (break_while) {
                     if (mRecord[pos] != ']')
                         goToAryEnd(pos, bm);
@@ -1204,6 +1206,7 @@ void StreamProcessor::array(long& pos, bitmap& bm) {
                 memcpy(mText, mRecord + start_pos, text_length);
                 mText[text_length] = '\0';
                 mOutput.append(mText);
+                mOutput.append(";");
                 if (break_while) break;
             } else if (qa.mCurState > 0) {
                 if (getElementType(pos) != element_type) {

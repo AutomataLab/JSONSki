@@ -1,4 +1,4 @@
-#include "StreamProcessor.h"
+#include "QueryProcessor.h"
 #include <immintrin.h>
 
 #include <emmintrin.h>
@@ -22,7 +22,7 @@
 
 using namespace std;
 
-StreamProcessor::StreamProcessor(string query) {
+QueryProcessor::QueryProcessor(string query) {
     JSONPathParser::updateQueryAutomaton(query, this->qa);
     this->mOutput.clear();
     this->mNumMatches = 0;
@@ -30,7 +30,7 @@ StreamProcessor::StreamProcessor(string query) {
     init(); 
 }
 
-void StreamProcessor::init() {
+void QueryProcessor::init() {
     structural_table =
         _mm256_setr_epi8(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '{', 0, '}', 0, 0,
                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '{', 0, '}', 0, 0);
@@ -59,7 +59,7 @@ void StreamProcessor::init() {
     this->mOutput.clear();
 }
 
-StreamProcessor::~StreamProcessor()
+QueryProcessor::~QueryProcessor()
 {
     if (mText) {
         free(mText);
@@ -67,7 +67,7 @@ StreamProcessor::~StreamProcessor()
     }
 }
 
-void StreamProcessor::setRecordText(char* rec_text, long length) {
+void QueryProcessor::setRecordText(char* rec_text, long length) {
     this->mRecord = rec_text;
     this->mRecordLength = length;
     this->mNumTmpWords = length / 32;
@@ -75,7 +75,7 @@ void StreamProcessor::setRecordText(char* rec_text, long length) {
 }
 
 // build quote bitmap and string mask bitmap for the current word
-__attribute__((always_inline)) void StreamProcessor::build_bitmap_basic() {
+__attribute__((always_inline)) void QueryProcessor::build_bitmap_basic() {
     unsigned long quotebit0, escapebit0;
     unsigned long quotebit, escapebit;
     // step 1: build structural quote and escape bitmaps for the current word
@@ -118,7 +118,7 @@ __attribute__((always_inline)) void StreamProcessor::build_bitmap_basic() {
     prev_iter_inside_quote = static_cast<uint64_t>(static_cast<int64_t>(str_mask) >> 63);
 }
 
-__attribute__((always_inline)) void StreamProcessor::build_bitmap_colon(bitmap& bm) {
+__attribute__((always_inline)) void QueryProcessor::build_bitmap_colon(bitmap& bm) {
     unsigned long colonbit0, colonbit;
     colonbit0 = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text0, v_colon));
     colonbit = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text, v_colon));
@@ -126,14 +126,14 @@ __attribute__((always_inline)) void StreamProcessor::build_bitmap_colon(bitmap& 
     bm.colonbit = bm.colonbit & (~str_mask);
 }
 
-__attribute__((always_inline)) void StreamProcessor::get_bitmap_colon(bitmap& bm) {
+__attribute__((always_inline)) void QueryProcessor::get_bitmap_colon(bitmap& bm) {
     if (bm.has_colon == false) {
         build_bitmap_colon(bm);
         bm.has_colon = true;
     }
 }
 
-__attribute__((always_inline)) void StreamProcessor::build_bitmap_comma(bitmap& bm) {
+__attribute__((always_inline)) void QueryProcessor::build_bitmap_comma(bitmap& bm) {
     unsigned long commabit0, commabit;
     commabit0 = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text0, v_comma));
     commabit = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text, v_comma));
@@ -141,14 +141,14 @@ __attribute__((always_inline)) void StreamProcessor::build_bitmap_comma(bitmap& 
     bm.commabit = bm.commabit & (~str_mask);
 }
 
-__attribute__((always_inline)) void StreamProcessor::get_bitmap_comma(bitmap& bm) {
+__attribute__((always_inline)) void QueryProcessor::get_bitmap_comma(bitmap& bm) {
     if (bm.has_comma == false) {
         build_bitmap_comma(bm);
         bm.has_comma = true;
     }
 }
 
-__attribute__((always_inline)) void StreamProcessor::build_bitmap_lbrace(bitmap& bm) {
+__attribute__((always_inline)) void QueryProcessor::build_bitmap_lbrace(bitmap& bm) {
     unsigned long lbracebit0, lbracebit;
     lbracebit0 = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text0, v_lbrace));
     lbracebit = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text, v_lbrace));
@@ -156,14 +156,14 @@ __attribute__((always_inline)) void StreamProcessor::build_bitmap_lbrace(bitmap&
     bm.lbracebit = bm.lbracebit & (~str_mask);
 }
 
-__attribute__((always_inline)) void StreamProcessor::get_bitmap_lbrace(bitmap& bm) {
+__attribute__((always_inline)) void QueryProcessor::get_bitmap_lbrace(bitmap& bm) {
     if (bm.has_lbrace == false) {
         build_bitmap_lbrace(bm);
         bm.has_lbrace = true;
     }
 }
 
-__attribute__((always_inline)) void StreamProcessor::build_bitmap_rbrace(bitmap& bm) {
+__attribute__((always_inline)) void QueryProcessor::build_bitmap_rbrace(bitmap& bm) {
     unsigned long rbracebit0, rbracebit;
     rbracebit0 = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text0, v_rbrace));
     rbracebit = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text, v_rbrace));
@@ -171,14 +171,14 @@ __attribute__((always_inline)) void StreamProcessor::build_bitmap_rbrace(bitmap&
     bm.rbracebit = bm.rbracebit & (~str_mask);
 }
 
-__attribute__((always_inline)) void StreamProcessor::get_bitmap_rbrace(bitmap& bm) {
+__attribute__((always_inline)) void QueryProcessor::get_bitmap_rbrace(bitmap& bm) {
     if (bm.has_rbrace == false) {
         build_bitmap_rbrace(bm);
         bm.has_rbrace = true;
     }
 }
 
-__attribute__((always_inline)) void StreamProcessor::build_bitmap_lbracket(bitmap& bm) {
+__attribute__((always_inline)) void QueryProcessor::build_bitmap_lbracket(bitmap& bm) {
     unsigned long lbracketbit0, lbracketbit;
     lbracketbit0 = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text0, v_lbracket));
     lbracketbit = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text, v_lbracket));
@@ -186,14 +186,14 @@ __attribute__((always_inline)) void StreamProcessor::build_bitmap_lbracket(bitma
     bm.lbracketbit = bm.lbracketbit & (~str_mask);
 }
 
-__attribute__((always_inline)) void StreamProcessor::get_bitmap_lbracket(bitmap& bm) {
+__attribute__((always_inline)) void QueryProcessor::get_bitmap_lbracket(bitmap& bm) {
     if (bm.has_lbracket == false) {
         build_bitmap_lbracket(bm);
         bm.has_lbracket = true;
     }
 }
 
-__attribute__((always_inline)) void StreamProcessor::build_bitmap_rbracket(bitmap& bm) {
+__attribute__((always_inline)) void QueryProcessor::build_bitmap_rbracket(bitmap& bm) {
     unsigned long rbracketbit0, rbracketbit;
     rbracketbit0 = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text0, v_rbracket));
     rbracketbit = (unsigned)_mm256_movemask_epi8(_mm256_cmpeq_epi8(v_text, v_rbracket));
@@ -201,14 +201,14 @@ __attribute__((always_inline)) void StreamProcessor::build_bitmap_rbracket(bitma
     bm.rbracketbit = bm.rbracketbit & (~str_mask);
 }
 
-__attribute__((always_inline)) void StreamProcessor::get_bitmap_rbracket(bitmap& bm) {
+__attribute__((always_inline)) void QueryProcessor::get_bitmap_rbracket(bitmap& bm) {
     if (bm.has_rbracket == false) {
         build_bitmap_rbracket(bm);
         bm.has_rbracket = true;
     }
 }
 
-__attribute__((always_inline)) IntervalInfo StreamProcessor::get_interval(long& pos, unsigned long& bitmap) {
+__attribute__((always_inline)) IntervalInfo QueryProcessor::get_interval(long& pos, unsigned long& bitmap) {
     IntervalInfo itv_info;
     int relative_pos = pos % 64;
     unsigned long w_start = (1UL << relative_pos);
@@ -229,7 +229,7 @@ __attribute__((always_inline)) IntervalInfo StreamProcessor::get_interval(long& 
     return itv_info;
 }
 
-__attribute__((always_inline)) IntervalInfo StreamProcessor::get_interval_new_word(unsigned long& bitmap) {
+__attribute__((always_inline)) IntervalInfo QueryProcessor::get_interval_new_word(unsigned long& bitmap) {
     IntervalInfo itv_info;
     unsigned long w_start = 1;
     if (bitmap) {
@@ -247,7 +247,7 @@ __attribute__((always_inline)) IntervalInfo StreamProcessor::get_interval_new_wo
     return itv_info;
 }
 
-__attribute__((always_inline)) IntervalInfo StreamProcessor::next_interval(unsigned long& bitmap) {
+__attribute__((always_inline)) IntervalInfo QueryProcessor::next_interval(unsigned long& bitmap) {
     IntervalInfo itv_info;
     unsigned long w_start = bitmap & (-bitmap);
     bitmap = bitmap & (bitmap - 1);
@@ -266,7 +266,7 @@ __attribute__((always_inline)) IntervalInfo StreamProcessor::next_interval(unsig
     return itv_info;
 }
 
-__attribute__((always_inline)) long StreamProcessor::get_position(unsigned long& bitmap, int number) {
+__attribute__((always_inline)) long QueryProcessor::get_position(unsigned long& bitmap, int number) {
     while (number > 1) {
         bitmap = bitmap & (bitmap - 1);
         --number;
@@ -275,19 +275,19 @@ __attribute__((always_inline)) long StreamProcessor::get_position(unsigned long&
     return pos;
 }
 
-__attribute__((always_inline)) int StreamProcessor::count(unsigned long& interval, unsigned long& bitmap) {
+__attribute__((always_inline)) int QueryProcessor::count(unsigned long& interval, unsigned long& bitmap) {
     return __builtin_popcountl(bitmap & interval); 
 }
 
-__attribute__((always_inline)) long StreamProcessor::object_end(unsigned long& interval, unsigned long& bitmap) {
+__attribute__((always_inline)) long QueryProcessor::object_end(unsigned long& interval, unsigned long& bitmap) {
     return top_word * 64 + 64 - __builtin_clzll(bitmap & interval);
 }
 
-__attribute__((always_inline)) long StreamProcessor::interval_end(unsigned long& interval) {
+__attribute__((always_inline)) long QueryProcessor::interval_end(unsigned long& interval) {
     return top_word * 64 + 63 - __builtin_clzll(interval);
 }
 
-__attribute__((always_inline)) void StreamProcessor::goOverObj(long& pos, bitmap& bm) {
+__attribute__((always_inline)) void QueryProcessor::goOverObj(long& pos, bitmap& bm) {
     int num_open = 1;
     int num_close = 0;
     long word_id = pos / 64;
@@ -335,7 +335,7 @@ __attribute__((always_inline)) void StreamProcessor::goOverObj(long& pos, bitmap
     }
 }
 
-__attribute__((always_inline)) void StreamProcessor::goOverAry(long& pos, bitmap& bm) {
+__attribute__((always_inline)) void QueryProcessor::goOverAry(long& pos, bitmap& bm) {
     int num_open = 1;
     int num_close = 0;
     long word_id = pos / 64;
@@ -384,7 +384,7 @@ __attribute__((always_inline)) void StreamProcessor::goOverAry(long& pos, bitmap
     }
 }
 
-__attribute__((always_inline)) void StreamProcessor::goToObjEnd(long& pos, bitmap& bm) {
+__attribute__((always_inline)) void QueryProcessor::goToObjEnd(long& pos, bitmap& bm) {
     int num_open = 1;
     int num_close = 0;
     long word_id = pos / 64;
@@ -431,7 +431,7 @@ __attribute__((always_inline)) void StreamProcessor::goToObjEnd(long& pos, bitma
     }
 }
 
-__attribute__((always_inline)) void StreamProcessor::goToAryEnd(long& pos, bitmap& bm) {
+__attribute__((always_inline)) void QueryProcessor::goToAryEnd(long& pos, bitmap& bm) {
     int num_open = 1;
     int num_close = 0;
     long word_id = pos / 64;
@@ -479,7 +479,7 @@ __attribute__((always_inline)) void StreamProcessor::goToAryEnd(long& pos, bitma
     }
 }
 
-__attribute__((always_inline)) void StreamProcessor::goOverPriAttr(long& pos, bitmap& bm) {
+__attribute__((always_inline)) void QueryProcessor::goOverPriAttr(long& pos, bitmap& bm) {
     long word_id = pos / 64;
     bool first_interval = false;
     bool new_word = false;
@@ -521,7 +521,7 @@ __attribute__((always_inline)) void StreamProcessor::goOverPriAttr(long& pos, bi
     }  
 }
 
-__attribute__((always_inline)) int StreamProcessor::goOverPriElem(long& pos, bitmap& bm) {
+__attribute__((always_inline)) int QueryProcessor::goOverPriElem(long& pos, bitmap& bm) {
     long word_id = pos / 64;
     bool first_interval = false;
     bool new_word = false;
@@ -563,7 +563,7 @@ __attribute__((always_inline)) int StreamProcessor::goOverPriElem(long& pos, bit
     }
 }
 
-__attribute__((always_inline)) int StreamProcessor::goOverPriElems(long& pos, bitmap& bm) {
+__attribute__((always_inline)) int QueryProcessor::goOverPriElems(long& pos, bitmap& bm) {
     long word_id = pos / 64;
     bool new_word = false;
     while (word_id < mNumWords) {
@@ -597,7 +597,7 @@ __attribute__((always_inline)) int StreamProcessor::goOverPriElems(long& pos, bi
     }
 }
 
-__attribute__((always_inline)) int StreamProcessor::goToObjElem(long& pos, bitmap& bm) {
+__attribute__((always_inline)) int QueryProcessor::goToObjElem(long& pos, bitmap& bm) {
     do {
         if (mRecord[pos] != '{' || mRecord[pos] != '[') {
         int result = goOverPriElems(pos, bm);
@@ -614,7 +614,7 @@ __attribute__((always_inline)) int StreamProcessor::goToObjElem(long& pos, bitma
     return OBJECT_END;
 }
 
-__attribute__((always_inline)) int StreamProcessor::goToAryElem(long& pos, bitmap& bm) {
+__attribute__((always_inline)) int QueryProcessor::goToAryElem(long& pos, bitmap& bm) {
     do {
         if (mRecord[pos] != '{' || mRecord[pos] != '[') {
             int result = goOverPriElems(pos, bm);
@@ -631,7 +631,7 @@ __attribute__((always_inline)) int StreamProcessor::goToAryElem(long& pos, bitma
     return OBJECT_END;
 }
 
-__attribute__((always_inline)) int StreamProcessor::goOverPriAttrs(long& pos, bitmap& bm) {
+__attribute__((always_inline)) int QueryProcessor::goOverPriAttrs(long& pos, bitmap& bm) {
     long word_id = pos / 64;
     bool new_word = false;
     while (word_id < mNumWords) {
@@ -665,7 +665,7 @@ __attribute__((always_inline)) int StreamProcessor::goOverPriAttrs(long& pos, bi
     }
 }
 
-__attribute__((always_inline)) int StreamProcessor::goToObjAttr(long& pos, bitmap& bm) {
+__attribute__((always_inline)) int QueryProcessor::goToObjAttr(long& pos, bitmap& bm) {
     do {
         int result = goOverPriAttrs(pos, bm);
         if (result == OBJECT_END) {
@@ -680,7 +680,7 @@ __attribute__((always_inline)) int StreamProcessor::goToObjAttr(long& pos, bitma
     return OBJECT_END;
 }
 
-__attribute__((always_inline)) int StreamProcessor::goToAryAttr(long& pos, bitmap& bm) {
+__attribute__((always_inline)) int QueryProcessor::goToAryAttr(long& pos, bitmap& bm) {
     do {
         int result = goOverPriAttrs(pos, bm);
         if (result == OBJECT_END) {
@@ -695,7 +695,7 @@ __attribute__((always_inline)) int StreamProcessor::goToAryAttr(long& pos, bitma
     return OBJECT_END;
 }
 
-__attribute__((always_inline)) int StreamProcessor::goToPrimAttr(long& pos, bitmap& bm) {
+__attribute__((always_inline)) int QueryProcessor::goToPrimAttr(long& pos, bitmap& bm) {
     long word_id = pos / 64;
     bool first_interval = false;
     bool new_word = false;
@@ -752,7 +752,7 @@ __attribute__((always_inline)) int StreamProcessor::goToPrimAttr(long& pos, bitm
     }
 }
 
-__attribute__((always_inline)) JumpInfo StreamProcessor::goOverPrimElemsInRange(long& pos, int num_elements, bitmap& bm) {
+__attribute__((always_inline)) JumpInfo QueryProcessor::goOverPrimElemsInRange(long& pos, int num_elements, bitmap& bm) {
     int word_id = pos / 64;
     bool new_word = false;
     int num_comma = 0;
@@ -806,7 +806,7 @@ __attribute__((always_inline)) JumpInfo StreamProcessor::goOverPrimElemsInRange(
 }
 
 
-__attribute__((always_inline)) int StreamProcessor::goOverElem(long& pos, int num_elements, bitmap& bm) {
+__attribute__((always_inline)) int QueryProcessor::goOverElem(long& pos, int num_elements, bitmap& bm) {
     while (num_elements > 0) {
         if (!hasMoreElements(pos)) {
             return ARRAY_END;
@@ -836,7 +836,7 @@ __attribute__((always_inline)) int StreamProcessor::goOverElem(long& pos, int nu
     return SUCCESS;
 }
 
-__attribute__((always_inline)) int StreamProcessor::goToObjElemInRange(long& pos, int& num_elements, bitmap& bm) {
+__attribute__((always_inline)) int QueryProcessor::goToObjElemInRange(long& pos, int& num_elements, bitmap& bm) {
      do {
         int element_type = getElementType(pos);
         int result = 0;
@@ -868,7 +868,7 @@ __attribute__((always_inline)) int StreamProcessor::goToObjElemInRange(long& pos
     return RANGE_END;
 }
 
-__attribute__((always_inline)) int StreamProcessor::goToAryElemInRange(long& pos, int& num_elements, bitmap& bm) {
+__attribute__((always_inline)) int QueryProcessor::goToAryElemInRange(long& pos, int& num_elements, bitmap& bm) {
     do {
         int element_type = getElementType(pos);
         int result = 0;
@@ -900,7 +900,7 @@ __attribute__((always_inline)) int StreamProcessor::goToAryElemInRange(long& pos
     return RANGE_END;
 }
 
-__attribute__((always_inline)) int StreamProcessor::goToPrimElemInRange(long& pos, int& num_elements, bitmap& bm) {
+__attribute__((always_inline)) int QueryProcessor::goToPrimElemInRange(long& pos, int& num_elements, bitmap& bm) {
     do {
         int element_type = getElementType(pos);
         int result = 0;
@@ -922,7 +922,7 @@ __attribute__((always_inline)) int StreamProcessor::goToPrimElemInRange(long& po
     return RANGE_END;
 }
 
-__attribute__((always_inline)) bool StreamProcessor::hasMoreElements(long& pos) {
+__attribute__((always_inline)) bool QueryProcessor::hasMoreElements(long& pos) {
     while (mRecord[pos] == ' ' || mRecord[pos] == '\n' || mRecord[pos] == '\r') ++pos;
     ++pos;
     while (mRecord[pos] == ' ' || mRecord[pos] == '\n' || mRecord[pos] == '\r') ++pos; 
@@ -934,14 +934,14 @@ __attribute__((always_inline)) bool StreamProcessor::hasMoreElements(long& pos) 
     return true;
 }
 
-__attribute__((always_inline)) int StreamProcessor::getElementType(long& pos) {
+__attribute__((always_inline)) int QueryProcessor::getElementType(long& pos) {
     while (mRecord[pos] == ' ') ++pos;
     if (mRecord[pos] == '{') return OBJECT;
     if (mRecord[pos] == '[') return ARRAY;
     return PRIMITIVE;
 }
 
-__attribute__((always_inline)) int StreamProcessor::goToPrimElem(long& pos, bitmap& bm) {
+__attribute__((always_inline)) int QueryProcessor::goToPrimElem(long& pos, bitmap& bm) {
     do {
         int element_type = getElementType(pos);
         switch (element_type) {
@@ -957,7 +957,7 @@ __attribute__((always_inline)) int StreamProcessor::goToPrimElem(long& pos, bitm
     return ARRAY_END;
 }
 
-__attribute__((always_inline)) bool StreamProcessor::hasMoreAttributes(long& pos) {
+__attribute__((always_inline)) bool QueryProcessor::hasMoreAttributes(long& pos) {
     // if current character is blank, skip this character until meeting a non-blank character
     while (mRecord[pos] == ' ') ++pos;
     ++pos;
@@ -972,14 +972,14 @@ __attribute__((always_inline)) bool StreamProcessor::hasMoreAttributes(long& pos
     return true;
 }
 
-__attribute__((always_inline)) int StreamProcessor::getAttributeType(long& pos) {
+__attribute__((always_inline)) int QueryProcessor::getAttributeType(long& pos) {
     while (mRecord[pos] == ' ') ++pos;
     if (mRecord[pos] == '{') return OBJECT;
     if (mRecord[pos] == '[') return ARRAY;
     return PRIMITIVE;
 }
 
-void StreamProcessor::object(long& pos, bitmap& bm) {
+void QueryProcessor::object(long& pos, bitmap& bm) {
     int attribute_type = qa.typeExpectedInObj();
     while (hasMoreAttributes(pos)) {
         int result = 0;
@@ -1075,7 +1075,7 @@ void StreamProcessor::object(long& pos, bitmap& bm) {
     }
 }
 
-void StreamProcessor::array(long& pos, bitmap& bm) {
+void QueryProcessor::array(long& pos, bitmap& bm) {
     int next_state = qa.getNextStateNoKey();
     qa.pushStack(next_state);
     int element_type = qa.typeExpectedInArr();
@@ -1229,17 +1229,17 @@ void StreamProcessor::array(long& pos, bitmap& bm) {
     qa.popStack();
 }
 
-char StreamProcessor::getNextNonEmptyCharacter(long& pos) {
+char QueryProcessor::getNextNonEmptyCharacter(long& pos) {
     char ch = mRecord[pos];
     while (mRecord[pos] == ' ') ++pos;
     return mRecord[pos];
 }
 
-long StreamProcessor::getOutputMatchesNum() {
+long QueryProcessor::getOutputMatchesNum() {
     return mNumMatches;
 }
 
-string StreamProcessor::runQuery(Record* rec) {
+string QueryProcessor::runQuery(Record* rec) {
     setRecordText(rec->text + rec->rec_start_pos, rec->rec_length);
     init();
     long cur_pos = 0;

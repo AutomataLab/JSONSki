@@ -1,5 +1,5 @@
 #include "../src/RecordLoader.h"
-#include "../src/StreamProcessor.h"
+#include "../src/QueryProcessor.h"
 
 int main() {
     char* file_path = "../dataset/bestbuy_sample_large_record.json";
@@ -13,7 +13,7 @@ int main() {
 
     string query = "$.products[*].categoryPath[1:3].name";
     cout<<"\nstart executing query "<<query<<endl;
-    StreamProcessor processor(query);
+    QueryProcessor processor(query);
     string output = processor.runQuery(rec);
     cout<<"finish query execution"<<endl;
     cout<<"matches are: "<<output<<endl;

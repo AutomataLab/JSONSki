@@ -6,7 +6,7 @@ EXEC4 = $(DIR)/example4
 TARGET = $(EXEC1) $(EXEC2) $(EXEC3) $(EXEC4)
 all: $(TARGET)
 
-CC = g++-7
+CC = g++
 CC_FLAGS = -O3 -std=c++11 -mavx -mavx2 -msse -msse2 -msse4 -msse4.2 -mpclmul
 POST_FLAGS = -lpthread -mcmodel=medium -static-libstdc++
 

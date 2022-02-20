@@ -1,5 +1,5 @@
-#ifndef STREAMPROCESSOR_H
-#define STREAMPROCESSOR_H
+#ifndef QUERYPROCESSOR_H
+#define QUERYPROCESSOR_H
 #include <string>
 #include <iostream>
 #include <vector>
@@ -60,11 +60,13 @@ struct JumpInfo {
     }
 };
 
-class StreamProcessor {
+class QueryProcessor {
   public:
-    // initialization based on query
-    StreamProcessor(string query);
-    ~StreamProcessor();
+    // initialization. including query automaton construction and
+    // some internal variables initialization for supporting bit-parallel
+    // fast-forwarding optimizations.
+    QueryProcessor(string query);
+    ~QueryProcessor();
     long getOutputMatchesNum();
     // execute query on one single JSON record
     string runQuery(Record* rec);

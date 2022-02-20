@@ -1,5 +1,5 @@
 #include "../src/RecordLoader.h"
-#include "../src/StreamProcessor.h"
+#include "../src/QueryProcessor.h"
 
 int main() {
     char* file_path = "../dataset/twitter_sample_small_records.json";
@@ -13,7 +13,7 @@ int main() {
 
     string query = "$.entities.urls[*].url";
     cout<<"\nstart executing query "<<query<<endl;
-    StreamProcessor processor(query);
+    QueryProcessor processor(query);
     // process small records one by one
     int num_recs = record_set->size();
     string output = "";

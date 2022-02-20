@@ -87,6 +87,6 @@ Assume executable example file is `example1`.
 - `static Record* loadSingleRecord(char* file_path)`: loads the whole input file as one single record (allow newlines in strings and other legal places). 
 - `static RecordSet* loadRecords(char* file_path)`: loads multiple records from the input file (all newlines are treated as delimiters; no newlines (except for `\n` and `\r` in JSON strings) are allowed within a record); `RecordSet` can be accessed in array style (see `example3.cpp` and `example4.cpp` in `example` folder).
 ### Streaming Query Processor (Class: StreamProcessor)
-- `StreamProcessor(string query): constructor function, initialize query processor by creating query automaton and initializing some internal variables for parallel fast-forwarding.
+- `StreamProcessor(string query)`: constructor function, initialize query processor by creating query automaton and initializing some internal variables for parallel fast-forwarding.
 - `string runQuery(Record* record)`: run query on the specific record and get results.
 - All fast-forward functions in our paper [1] are supported in StreamProcessor class.

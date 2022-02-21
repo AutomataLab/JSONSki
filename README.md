@@ -132,6 +132,4 @@ More detailed evaluation can be found in our ASPLOS'21 paper [1].
 - `QueryProcessor(string query)`: initialization, including query automaton construction and some internal variables initialization for bit-parallel fast-forwarding.
 - `string runQuery(Record* record)`: run query on the specific record and get results.
 - All bit-parallel fast-forward functions proposed in our paper [1] (see below) are supported in QueryProcessor class.
-
-<br/>
 <img src="doc/fast_forward.png" width="80%"></img>

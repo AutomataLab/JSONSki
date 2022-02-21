@@ -107,19 +107,19 @@ The following figure reports the sequential execution time of different methods 
 
 <figcaption style="text-align:center"><b>Fig.1 - Execution Time of Processing A Single Large Record.</b></figcaption>
 <br/>
-<img src="doc/compare_seq_large.png" width="70%"></img>
+<img src="doc/compare_seq_large.png" width="80%"></img>
 
 In terms of small records processing, the performance results are similar, except that most methods run a bit faster, thanks to the better cache locality.
 
 <figcaption style="text-align:center"><b>Fig.2 - Execution Time of Processing A Sequence of Small Records.</b></figcaption>
 <br/>
-<img src="doc/compare_seq_small.png" width="70%"></img>
+<img src="doc/compare_seq_small.png" width="80%"></img>
 
 Parallel performance with multi-threading (16 threads) were also evaluated. The following figure reports the average execution time for both small records processing (on the left) and single large record processing (on the right). For small records, one thread processes a small record each time, one by one. All methods scale well as the number of cores increases, and the conclusion os similar as the sequential evaluation. For a single large record, [JPStream](https://github.com/AutomataLab/JPStream) and [Pison](https://github.com/AutomataLab/Pison) support speculative execution, while JSONSki currently does not have this feature. The results (on the right) show that the single-threaded JSONSki still runs faster than JPStream with 16 threads, while runs around 1.5x slower than Pison with 16 threads.
 
 <figcaption style="text-align:center"><b>Fig.3 - Average Execution Time of Parallel Execution.</b></figcaption>
 <br/>
-<img src="doc/compare_parallel.png" width="70%"></img>
+<img src="doc/compare_parallel.png" width="80%"></img>
 
 More detailed evaluation can be found in our ASPLOS'21 paper [1].
 

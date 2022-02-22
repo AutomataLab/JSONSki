@@ -15,7 +15,7 @@
 ### JSONPath
 JSONPath is the basic query language of JSON data. It refers to substructures of JSON data in a similar way as XPath queries are used for XML data. For the details of JSONPath syntax, please refer to [Stefan Goessner's article](https://goessner.net/articles/JsonPath/index.html#e2). 
 
-#### Supported Operators
+#### Supported Operators (to be updated)
 | Operator                  |   Description     |
 | :-----------------------: |:-----------------:|
 | `$`                       | root object              |
@@ -25,7 +25,7 @@ JSONPath is the basic query language of JSON data. It refers to substructures of
 | `[index]`             | array index      |
 | `[start:end]`             | array slice operator      |
 
-#### Operators Not Supported
+#### Operators Not Supported (to be updated)
 | Operator                  |   Description     |
 | :-----------------------: |:-----------------:|
 | `@`                       | current object filtered by predicate      |
@@ -67,10 +67,10 @@ Consider a piece of geo-referenced tweet in JSON
 
 
 ### APIs
-#### Records Loading (Class: RecordLoader)
+#### Records Loading (Class: `RecordLoader`)
 - `static Record* loadSingleRecord(char* file_path)`: loads the whole input file as one single record (allow newlines in strings and other legal places). 
 - `static RecordSet* loadRecords(char* file_path)`: loads multiple records from the input file (all newlines are treated as delimiters; no newlines (except for `\n` and `\r` in JSON strings) are allowed within a record); `RecordSet` can be accessed in array style (see `example3.cpp` and `example4.cpp` in `example` folder).
-#### Query Processor (Class: QueryProcessor)
+#### Query Processor (Class: `QueryProcessor`)
 - `QueryProcessor(string query)`: initialization, including query automaton construction and some internal variables initialization for bit-parallel fast-forwarding.
 - `string runQuery(Record* record)`: run query on the specific record and get results.
 - All bit-parallel fast-forward functions proposed in our paper [1] (see below) are supported in QueryProcessor class.
@@ -86,6 +86,19 @@ These APIs advance the current streaming position `pos` to a future position to 
 |`goToAryElem(K)`| In an array, move `pos` to the next element of array type within `K` elements|
 | **Group 2** |**Fast-forward over an unmatched attribute value** |
 |`goOverObj()`| move `pos` to the end of the next object|
+|`goOverAry()`| move `pos` to the end of the next array |
+|`goOverPriAttr()`| move `pos` to the end of the next attribute of primitive type |
+|`goOverPriElem()`| move `pos` to the end of the next element of primitive type |
+| **Group 3** |**Fast-forward over a value and output it** |
+|`goOverObj(out)`| move `pos` to the end of the next object meanwhile output the object|
+|`goOverAry(out)`| move `pos` to the end of the next array meanwhile output the array|
+|`goOverPriAttr(out)`| move `pos` to the end of the next attribute of primitive type meanwhile output the primitive|
+|`goOverPriElem(out)`| move `pos` to the end of the next element of primitive type meanwhile output the primitive|
+| **Group 4** |**Fast-forward to the end of current object** |
+|`goToObjEnd()`| In an object, move `pos` to the end of the current object|
+| **Group 5** |**Fast-forward over out-of-range array elements** |
+|`goOverElem(K)`| move `pos` to the end of next `K` elements|
+|`goToAryEnd()`| move `pos` to the end of the current array|
 
 #### API Usage Examples
 A few examples (in `cpp` files) are provided in the `example` folder. They demostrate how to use our APIs to implement JSON queries. To create and test your examples, please update the `makefile` accordingly.

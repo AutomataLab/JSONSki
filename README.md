@@ -65,36 +65,40 @@ Consider a piece of geo-referenced tweet in JSON
 | `$.place.bounding_box.pos[0]`| first position of the bounding box in place                      |
 | `$.place.bounding_box.pos[0:2]`| first two positions of the bounding box in place                      |
 
-### Examples
-A few examples (in `cpp` files) are provided in the `example` folder. They demostrate how to use our APIs to implement JSON queries. To create and test your examples, please update the `makefile` accordingly.
 
-### Platform
-- **Hardware**: CPUs with `64-bit ALU instructions`, `256-bit SIMD instruction set`, and the `carry-less multiplication instruction (pclmulqdq)`
-- **Operating System**: `Linux`
-- **C++ Compiler**: `g++` (7.4.0 or higher)
-
-### Build
-  ```
-  make clean
-  make all
-  ```
-### Run
-Assume executable example file is `example1`.
-  ```
-  cd bin
-  ./example1
-  ```
-
-## APIs
-### Records Loading (Class: RecordLoader)
+### APIs
+#### Records Loading (Class: RecordLoader)
 - `static Record* loadSingleRecord(char* file_path)`: loads the whole input file as one single record (allow newlines in strings and other legal places). 
 - `static RecordSet* loadRecords(char* file_path)`: loads multiple records from the input file (all newlines are treated as delimiters; no newlines (except for `\n` and `\r` in JSON strings) are allowed within a record); `RecordSet` can be accessed in array style (see `example3.cpp` and `example4.cpp` in `example` folder).
-### Query Processor (Class: QueryProcessor)
+#### Query Processor (Class: QueryProcessor)
 - `QueryProcessor(string query)`: initialization, including query automaton construction and some internal variables initialization for bit-parallel fast-forwarding.
 - `string runQuery(Record* record)`: run query on the specific record and get results.
 - All bit-parallel fast-forward functions proposed in our paper [1] (see below) are supported in QueryProcessor class.
 
 <img src="doc/fast_forward.png" width="70%"></img>
+
+#### API Usage Examples
+A few examples (in `cpp` files) are provided in the `example` folder. They demostrate how to use our APIs to implement JSON queries. To create and test your examples, please update the `makefile` accordingly.
+
+
+### Build and Run
+
+#### Platform
+- **Hardware**: CPUs with `64-bit ALU instructions`, `256-bit SIMD instruction set`, and the `carry-less multiplication instruction (pclmulqdq)`
+- **Operating System**: `Linux`
+- **C++ Compiler**: `g++` (7.4.0 or higher)
+
+#### Build
+  ```
+  make clean
+  make all
+  ```
+#### Run
+Assume executable example file is `example1`.
+  ```
+  cd bin
+  ./example1
+  ```
 
 
 ## Performance Results

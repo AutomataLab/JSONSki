@@ -2,12 +2,14 @@
 **JSONSki** is a highly efficient streaming JSONPath processor with bit-parallel fast-forwarding. Basically, it exploits internal JSON data strcuture and reveals a wide range of opportunities to fast-forward the streaming over certain data substructures irrelevant to the query evaluation. To avoid detailed parsing when identifying these substructures, a highly bit-parallel solution that intensively utilizes bitwise and SIMD operations has been applied. For more details about JSONSki, please refer to our paper.
 
 ## Publication
-```@inproceedings{jsonski,
+```
+@inproceedings{jsonski,
   title={JSONSki: Streaming Semi-structured Data with Bit-Parallel Fast-Forwarding},
   author={Lin Jiang and Zhijia Zhao},
   booktitle={Proceedings of the Twenty-Third International Conference on Architectural Support for Programming Languages and Operating Systems (ASPLOS)},
   year={2022}
-}```
+}
+```
 
 ## Getting Started
 ### JSONPath

@@ -69,7 +69,7 @@ Consider a piece of geo-referenced tweet in JSON
 A few examples (in `cpp` files) are provided in the `example` folder. They demostrate how to use our APIs to implement JSON queries. To create and test your examples, please update the `makefile` accordingly.
 
 ### Platform
-- **Hardware**: CPU processors should support `64-bit ALU instructions`, `256-bit SIMD instruction set`, and the `carry-less multiplication instruction (pclmulqdq)`
+- **Hardware**: CPUs with `64-bit ALU instructions`, `256-bit SIMD instruction set`, and the `carry-less multiplication instruction (pclmulqdq)`
 - **Operating System**: `Linux`
 - **C++ Compiler**: `g++` (7.4.0 or higher)
 

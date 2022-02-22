@@ -83,6 +83,8 @@ Consider a piece of geo-referenced tweet in JSON
 |`goToAryElem()`| In an array, move `pos` to the next element of array type    |
 |`goToObjElem(K)`| In an array, move `pos` to the next element of object type within `K` elements|
 |`goToAryElem(K)`| In an array, move `pos` to the next element of array type within `K` elements|
+| ----------------------- |--------------------------------------------------|
+|`goOverObj()`| move `pos` to the end of the next object|
 
 #### API Usage Examples
 A few examples (in `cpp` files) are provided in the `example` folder. They demostrate how to use our APIs to implement JSON queries. To create and test your examples, please update the `makefile` accordingly.

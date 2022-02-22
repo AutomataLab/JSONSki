@@ -75,14 +75,14 @@ Consider a piece of geo-referenced tweet in JSON
 - `string runQuery(Record* record)`: run query on the specific record and get results.
 - All bit-parallel fast-forward functions proposed in our paper [1] (see below) are supported in QueryProcessor class.
 #### Fast-Forward APIs
-| API                  |   Description (`pos`: current streaming position)    |
-| :-----------------------: |:-----------------:|
-|`goToObjAttr()`| In an object, move `pos` to the start of the next attribute of object type|
-|`goToAryAttr()`| In an object, move `pos` to the start of the next attribute of array type|
-|`goToObjElem()`| In an array, move `pos` to the start of the next element of object type|
-
-
-<img src="doc/fast_forward.png" width="70%"></img>
+| API                      |   Description (`pos`: current streaming position) |
+| :----------------------- |:--------------------------------------------------|
+|`goToObjAttr()`| In an object, move `pos` to the next attribute of object type|
+|`goToAryAttr()`| In an object, move `pos` to the next attribute of array type |
+|`goToObjElem()`| In an array, move `pos` to the next element of object type   |
+|`goToAryElem()`| In an array, move `pos` to the next element of array type    |
+|`goToObjElem(K)`| In an array, move `pos` to the next element of object type within `K` elements|
+|`goToAryElem(K)`| In an array, move `pos` to the next element of array type within `K` elements|
 
 #### API Usage Examples
 A few examples (in `cpp` files) are provided in the `example` folder. They demostrate how to use our APIs to implement JSON queries. To create and test your examples, please update the `makefile` accordingly.

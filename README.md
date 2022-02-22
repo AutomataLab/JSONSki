@@ -75,6 +75,8 @@ Consider a piece of geo-referenced tweet in JSON
 - `string runQuery(Record* record)`: run query on the specific record and get results.
 - All bit-parallel fast-forward functions proposed in our paper [1] (see below) are supported in QueryProcessor class.
 #### Fast-Forward APIs
+| API                  |   Description     |
+| :-----------------------: |:-----------------:|
 |`goToObjAttr()`| move current streaming position (`pos`) to the start of the next object attribute|
 
 

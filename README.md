@@ -77,13 +77,14 @@ Consider a piece of geo-referenced tweet in JSON
 #### Fast-Forward APIs
 | API                      |   Description (`pos`: current streaming position) |
 | :----------------------- |:--------------------------------------------------|
+| Group 1 | Fast-forward to a type-specific attribute / element |
 |`goToObjAttr()`| In an object, move `pos` to the next attribute of object type|
 |`goToAryAttr()`| In an object, move `pos` to the next attribute of array type |
 |`goToObjElem()`| In an array, move `pos` to the next element of object type   |
 |`goToAryElem()`| In an array, move `pos` to the next element of array type    |
 |`goToObjElem(K)`| In an array, move `pos` to the next element of object type within `K` elements|
 |`goToAryElem(K)`| In an array, move `pos` to the next element of array type within `K` elements|
-| ----------------------- |--------------------------------------------------|
+| Group 2 |Fast-forward over an unmatched attribute value |
 |`goOverObj()`| move `pos` to the end of the next object|
 
 #### API Usage Examples

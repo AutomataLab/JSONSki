@@ -169,4 +169,4 @@ Fig.2 shows the performance results, which are similar to those of processing si
 <br/>
 <img src="doc/compare_seq_small.png" width="80%"></img>
 
-More evaluation results can be found in our ASPLOS'21 paper [1].
+More evaluation results can be found in our ASPLOS'22 paper [1].

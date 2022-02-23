@@ -2,7 +2,7 @@
 JSONSki is **a streaming JSONPath processor** with **fast-forward** functionality. During the streaming, it can automatically fast-forward over certain JSON substructures that are irrelavent to the query evaluation, without parsing them in detail. To make the fast-forward efficient, JSONSki features a highly bit-parallel solution that intensively utilizes bitwise and SIMD operations that are prevelent on modern CPUs to implement the fast-forward APIs. For more details about JSONSki, please refer to our paper.
 
 ## Publication
-Lin Jiang and Zhijia Zhao. JSONSki: Streaming Semi-structured Data with Bit-Parallel Fast-Forwarding. In Proceedings of the Twenty-Third International Conference on Architectural Support for Programming Languages and Operating Systems (ASPLOS), 2022.
+[1] Lin Jiang and Zhijia Zhao. JSONSki: Streaming Semi-structured Data with Bit-Parallel Fast-Forwarding. In Proceedings of the Twenty-Third International Conference on Architectural Support for Programming Languages and Operating Systems (ASPLOS), 2022.
 ```
 @inproceedings{jsonski,
   title={JSONSki: Streaming Semi-structured Data with Bit-Parallel Fast-Forwarding},
@@ -163,10 +163,10 @@ The following figure reports the execution time of different methods for single 
 <img src="doc/compare_seq_large.png" width="80%"></img>
 
 ### Processing Many Small Records
-Fig.2 shows the performance results, which are similar those of processing single large records, except that most methods run a bit faster, thanks to the better cache locality.
+Fig.2 shows the performance results, which are similar to those of processing single large records, except that most methods run a bit faster, thanks to the better cache locality.
 
 <figcaption style="text-align:center"><b>Fig.2 - Execution Time of Processing A Sequence of Small Records.</b></figcaption>
 <br/>
 <img src="doc/compare_seq_small.png" width="80%"></img>
 
-More detailed evaluation can be found in our ASPLOS'21 paper [1].
+More evaluation results can be found in our ASPLOS'21 paper [1].

@@ -151,6 +151,7 @@ We compared JSONSki with [RapidJSON](https://github.com/Tencent/rapidjson), [JPS
 
 ### Machine Configuration
 CPUs: two Intel 2.1GHz Xeon E5-2620 v4 (64-bit ALU operations and 256-bit SIMD instructions)
+
 Memory: 128GB RAM. 
 
 

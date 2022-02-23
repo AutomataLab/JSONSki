@@ -163,7 +163,7 @@ The following figure reports the execution time of different methods for single 
 <img src="doc/compare_seq_large.png" width="80%"></img>
 
 ### Processing Many Small Records
-Fig.2 shows the performance results, which are similar to those of processing single large records, except that most methods run a bit faster, thanks to the better cache locality.
+Fig.2 shows the performance results of processing a sequence of small records, which are similar to those of processing single large records, except that most methods run a bit faster, thanks to the better cache locality.
 
 <figcaption style="text-align:center"><b>Fig.2 - Execution Time of Processing A Sequence of Small Records.</b></figcaption>
 <br/>

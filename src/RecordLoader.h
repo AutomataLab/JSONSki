@@ -1,12 +1,14 @@
 #ifndef _RECORDLOADER_H
 #define _RECORDLOADER_H
-
 #include <stdio.h>
+#if defined(__MACH__)
 #include <stdlib.h>
+#else 
+#include <malloc.h>
+#endif
 #include <string.h>
 #include <ctype.h>
 #include <pthread.h>
-#include <malloc.h>
 #include <sys/time.h>
 #include <sys/file.h>
 #include <unistd.h>

@@ -1,3 +1,8 @@
+version: 2.1
+
+orbs:
+  win: circleci/windows@2.2.0
+
 jobs:
   build-for-linux:
     docker: 
@@ -10,28 +15,21 @@ jobs:
       - run: make clean
       - run: make all
       - run: cd bin && ./example1
- build-for-windows:
+      
+  build-for-windows:
     executor:
       name: win/default
-      shell: powershell.exe
+      size: "medium"
+
     steps:
       - checkout
-      - run:
-          name: Installing g++
-          command: 'choco install mingw'
-      - run:
-          name: Compiling Code
-          command: 'make all'
-      - run:
-          name: Running Code
-          command: cd bin && ./example1
-    
-      
- 
+      - run: make clean
+      - run: make all
+      - run: cd bin && ./example1
 
 workflows:
   version: 2.1
-  Running JSONSki on Linux:
+  build:
     jobs:
       - build-for-linux
       - build-for-windows

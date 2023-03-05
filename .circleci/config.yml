@@ -9,7 +9,10 @@ jobs:
           password: $DOCKERHUB_PASSWORD
     steps:
       - checkout
+      - run: make clean
       - run: make all
+      - run: cd bin
+      - run: ./example1
       
  
 

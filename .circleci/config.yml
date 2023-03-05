@@ -16,18 +16,24 @@ jobs:
       - run: make all
       - run: cd bin && ./example1
       
-  build-for-windows:
-    executor:
-      name: win/default
-      size: "medium"
-
+  build-for-macos:
+    docker:
+      - image: conanio/gcc10
+        environment:
+          CXX: g++-10
+          CC: gcc-10
+          CMAKE_BUILD_FLAGS:
+          CTEST_FLAGS: --output-on-failure
     steps:
       - checkout
-      - run: mkdir -p bin ; g++ -O3 -std=c++11 -mavx -mavx2 -msse -msse2 -msse4 -msse4.2 -mpclmul -o bin/example1 src/*.cpp example/example1.cpp -lpthread -mcmodel=medium -static-libstdc++ ; cd bin ; ./example1
+      - run: make clean
+      - run: make all
+      - run: cd bin && ./example1
 
+  
 workflows:
   version: 2.1
   build:
     jobs:
       - build-for-linux
-      - build-for-windows
+      - build-for-macos

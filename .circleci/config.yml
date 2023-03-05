@@ -23,7 +23,7 @@ jobs:
 
     steps:
       - checkout
-      - run: mkdir -p bin ; g++ -O3 -std=c++11 -mavx -mavx2 -msse -msse2 -msse4 -msse4.2 -mpclmul -o bin/example1 src/*.cpp example/example1.cpp -lpthread -mcmodel=medium -static-libstdc++ ; cd bin && ./example1
+      - run: mkdir -p bin ; g++ -O3 -std=c++11 -mavx -mavx2 -msse -msse2 -msse4 -msse4.2 -mpclmul -o bin/example1 src/*.cpp example/example1.cpp -lpthread -mcmodel=medium -static-libstdc++ ; cd bin ; ./example1
 
 workflows:
   version: 2.1

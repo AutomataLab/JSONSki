@@ -12,7 +12,7 @@ jobs:
       - run: make clean
       - run: make all
       - run: cd bin && ./example1
- build:
+ build-for-windows:
     executor:
       name: win/default
       shell: powershell.exe
@@ -36,4 +36,4 @@ workflows:
   Running JSONSki on Linux:
     jobs:
       - build-for-linux
-      - build-for-macos
+      - build-for-windows

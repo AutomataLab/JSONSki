@@ -12,12 +12,28 @@ jobs:
       - run: make clean
       - run: make all
       - run: cd bin && ./example1
+ build:
+    executor:
+      name: win/default
+      shell: powershell.exe
+    steps:
+      - checkout
+      - run:
+          name: Installing g++
+          command: 'choco install mingw'
+      - run:
+          name: Compiling Code
+          command: 'make all'
+      - run:
+          name: Running Code
+          command: cd bin && ./example1
     
       
  
 
 workflows:
   version: 2.1
-  build:
+  Running JSONSki on Linux:
     jobs:
       - build-for-linux
+      - build-for-macos

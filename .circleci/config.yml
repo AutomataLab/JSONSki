@@ -11,9 +11,8 @@ jobs:
       - checkout
       - run: make clean
       - run: make all
-      - run: ls
-      - run: cd bin
-      - run: ls
+      - run: cd bin && ./example1
+    
       
  
 

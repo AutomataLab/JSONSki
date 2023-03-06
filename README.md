@@ -1,4 +1,5 @@
-[![AutomataLab](https://circleci.com/gh/AutomataLab/JSONSki.svg?style=svg&circle-token=daf002fef2464bc57675d6a3dc072485f27b7bbc)](https://app.circleci.com/pipelines/github/AutomataLab/JSONSki)
+[![CircleCI](https://circleci.com/gh/AutomataLab/JSONSki.svg?style=svg&circle-token=daf002fef2464bc57675d6a3dc072485f27b7bbc)](https://app.circleci.com/pipelines/github/AutomataLab/JSONSki)
+
 
 
 # JSONSki

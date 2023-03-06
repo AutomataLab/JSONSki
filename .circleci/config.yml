@@ -30,7 +30,6 @@ jobs:
       - run: make all
       - run: cd bin && ./example1
 
-  
 workflows:
   version: 2.1
   build:

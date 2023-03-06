@@ -1,3 +1,7 @@
+[![CircleCI](https://circleci.com/gh/AutomataLab/JSONSki.svg?style=svg&circle-token=daf002fef2464bc57675d6a3dc072485f27b7bbc)](https://app.circleci.com/pipelines/github/AutomataLab/JSONSki)
+
+
+
 # JSONSki
 JSONSki is **a streaming JSONPath processor** with **fast-forward** functionality. During the streaming, it can automatically fast-forward over certain JSON substructures that are irrelavent to the query evaluation, without parsing them in detail. To make the fast-forward efficient, JSONSki features a highly bit-parallel solution that intensively utilizes bitwise and SIMD operations that are prevelent on modern CPUs to implement the fast-forward APIs. For more details about JSONSki, please refer to our paper [1].
 
@@ -6,7 +10,6 @@ JSONSki is **a streaming JSONPath processor** with **fast-forward** functionalit
 You can download the npm package from here - https://www.npmjs.com/package/jsonski
 
 You can checkout the npm repository here - https://github.com/AutomataLab/JSONSki_nodejs/tree/master
-
 ## Installation
 ```
 npm i jsonski

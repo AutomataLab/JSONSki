@@ -1,0 +1,39 @@
+version: 2.1
+
+orbs:
+  win: circleci/windows@2.2.0
+
+jobs:
+  build-for-linux:
+    docker: 
+      - image: cimg/node:14.10.1
+        auth:
+          username: mydockerhub-user
+          password: $DOCKERHUB_PASSWORD
+    steps:
+      - checkout
+      - run: make clean
+      - run: make all
+      - run: cd bin && ./example1
+      
+  build-for-macos:
+    docker:
+      - image: conanio/gcc10
+        environment:
+          CXX: g++-10
+          CC: gcc-10
+          CMAKE_BUILD_FLAGS:
+          CTEST_FLAGS: --output-on-failure
+    steps:
+      - checkout
+      - run: make clean
+      - run: make all
+      - run: cd bin && ./example1
+
+  
+workflows:
+  version: 2.1
+  build:
+    jobs:
+      - build-for-linux
+      - build-for-macos

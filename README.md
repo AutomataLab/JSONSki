@@ -2,6 +2,7 @@
 ![npm](https://img.shields.io/npm/dt/jsonski?label=npm%20downloads)
 ![GitHub code size in bytes](https://img.shields.io/github/languages/code-size/AutomataLab/jsonski)
 ![](https://img.shields.io/badge/linux-macos-green)
+![GitHub Repo stars](https://img.shields.io/github/stars/AutomataLab/jsonski?color=green&logoColor=green)
 
 # JSONSki
 JSONSki is **a streaming JSONPath processor** with **fast-forward** functionality. During the streaming, it can automatically fast-forward over certain JSON substructures that are irrelavent to the query evaluation, without parsing them in detail. To make the fast-forward efficient, JSONSki features a highly bit-parallel solution that intensively utilizes bitwise and SIMD operations that are prevelent on modern CPUs to implement the fast-forward APIs. For more details about JSONSki, please refer to our paper [1].

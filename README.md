@@ -13,8 +13,10 @@ You can download the npm package from here: https://www.npmjs.com/package/jsonsk
 You can checkout the npm repository here: https://github.com/AutomataLab/JSONSki_nodejs/tree/master
 
 
-## Publication (<img src = "https://user-images.githubusercontent.com/49536356/223779502-297381a5-0522-4904-ac0a-71c82e0f8157.png" width = "50">)
-[1] Lin Jiang and Zhijia Zhao. [JSONSki: Streaming Semi-structured Data with Bit-Parallel Fast-Forwarding](https://dl.acm.org/doi/10.1145/3503222.3507719). In Proceedings of the Twenty-Third International Conference on Architectural Support for Programming Languages and Operating Systems (ASPLOS), 2022. [**Best Paper Award Winner**]
+## Publication
+[1] Lin Jiang and Zhijia Zhao. [JSONSki: Streaming Semi-structured Data with Bit-Parallel Fast-Forwarding](https://dl.acm.org/doi/10.1145/3503222.3507719). In Proceedings of the Twenty-Third International Conference on Architectural Support for Programming Languages and Operating Systems (ASPLOS), 2022. 
+
+<img src = "https://user-images.githubusercontent.com/49536356/223779502-297381a5-0522-4904-ac0a-71c82e0f8157.png" width = "35">[**Best Paper Award Winner**]
 
 ```
 @inproceedings{jsonski,

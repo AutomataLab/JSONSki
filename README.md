@@ -9,7 +9,7 @@ JSONSki is **a streaming JSONPath processor** with **fast-forward** functionalit
 
 
 ## NPM Package
-You can download the npm package from here - https://www.npmjs.com/package/jsonski
+You can download the npm package from here: https://www.npmjs.com/package/jsonski
 
 You can checkout the npm repository here - https://github.com/AutomataLab/JSONSki_nodejs/tree/master
 ## Installation

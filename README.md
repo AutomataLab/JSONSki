@@ -10,12 +10,7 @@ JSONSki is **a streaming JSONPath processor** with **fast-forward** functionalit
 ## NPM Package
 You can download the npm package from here: https://www.npmjs.com/package/jsonski
 
-You can checkout the npm repository here - https://github.com/AutomataLab/JSONSki_nodejs/tree/master
-## Installation
-```
-npm i jsonski
-```
-
+You can checkout the npm repository here: https://github.com/AutomataLab/JSONSki_nodejs/tree/master
 
 
 ## Publication
@@ -30,6 +25,27 @@ npm i jsonski
 ```
 
 ## Getting Started
+
+### Build and Run
+
+#### Platform
+- **Hardware**: CPUs with `64-bit ALU instructions`, `256-bit SIMD instruction set`, and the `carry-less multiplication instruction (pclmulqdq)`
+- **Operating System**: `Linux`
+- **C++ Compiler**: `g++` (7.4.0 or higher)
+
+#### Build
+  ```
+  make clean
+  make all
+  ```
+#### Run
+Assume executable example file is `example1`.
+  ```
+  cd bin
+  ./example1
+  ```
+
+
 ### JSONPath
 JSONPath is the basic query language of JSON data. It refers to substructures of JSON data in a similar way as XPath queries are used for XML data. For the details of JSONPath syntax, please refer to [Stefan Goessner's article](https://goessner.net/articles/JsonPath/index.html#e2). 
 
@@ -120,26 +136,6 @@ These APIs advance the current streaming position `pos` to a future position to 
 
 #### API Usage Examples
 A few examples (in `cpp` files) are provided in the `example` folder. They demostrate how to use our APIs to implement JSON queries. To create and test your examples, please update the `makefile` accordingly.
-
-
-### Build and Run
-
-#### Platform
-- **Hardware**: CPUs with `64-bit ALU instructions`, `256-bit SIMD instruction set`, and the `carry-less multiplication instruction (pclmulqdq)`
-- **Operating System**: `Linux`
-- **C++ Compiler**: `g++` (7.4.0 or higher)
-
-#### Build
-  ```
-  make clean
-  make all
-  ```
-#### Run
-Assume executable example file is `example1`.
-  ```
-  cd bin
-  ./example1
-  ```
 
 
 ## Performance Results

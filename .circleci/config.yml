@@ -7,9 +7,7 @@ jobs:
   build-for-linux:
     docker: 
       - image: cimg/node:14.10.1
-        auth:
-          username: mydockerhub-user
-          password: $DOCKERHUB_PASSWORD
+
     steps:
       - checkout
       - run: make clean

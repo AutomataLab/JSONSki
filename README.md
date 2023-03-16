@@ -2,25 +2,16 @@
 ![npm](https://img.shields.io/npm/dt/jsonski?label=npm%20downloads)
 ![GitHub code size in bytes](https://img.shields.io/github/languages/code-size/AutomataLab/jsonski)
 ![](https://img.shields.io/badge/linux-macos-green)
-![GitHub Repo stars](https://img.shields.io/github/stars/AutomataLab/jsonski?color=green&logoColor=green&style=social)
 
 # JSONSki
 JSONSki is **a streaming JSONPath processor** with **fast-forward** functionality. During the streaming, it can automatically fast-forward over certain JSON substructures that are irrelavent to the query evaluation, without parsing them in detail. To make the fast-forward efficient, JSONSki features a highly bit-parallel solution that intensively utilizes bitwise and SIMD operations that are prevelent on modern CPUs to implement the fast-forward APIs. For more details about JSONSki, please refer to our paper [1].
 
 
-## NPM Package
-You can download the npm package from here - https://www.npmjs.com/package/jsonski
-
-You can checkout the npm repository here - https://github.com/AutomataLab/JSONSki_nodejs/tree/master
-## Installation
-```
-npm i jsonski
-```
-
-
-
 ## Publication
-[1] Lin Jiang and Zhijia Zhao. [JSONSki: Streaming Semi-structured Data with Bit-Parallel Fast-Forwarding](https://dl.acm.org/doi/10.1145/3503222.3507719). In Proceedings of the Twenty-Third International Conference on Architectural Support for Programming Languages and Operating Systems (ASPLOS), 2022.
+[1] Lin Jiang and Zhijia Zhao. [JSONSki: Streaming Semi-structured Data with Bit-Parallel Fast-Forwarding](https://dl.acm.org/doi/10.1145/3503222.3507719). In Proceedings of the Twenty-Third International Conference on Architectural Support for Programming Languages and Operating Systems (ASPLOS), 2022. 
+
+<img src = "https://user-images.githubusercontent.com/49536356/223779502-297381a5-0522-4904-ac0a-71c82e0f8157.png" width = "30">**[Best Paper Award Winner](https://asplos-conference.org/2022/)**<img src = "https://user-images.githubusercontent.com/49536356/223779502-297381a5-0522-4904-ac0a-71c82e0f8157.png" width = "30">
+
 ```
 @inproceedings{jsonski,
   title={JSONSki: Streaming Semi-structured Data with Bit-Parallel Fast-Forwarding},
@@ -31,6 +22,29 @@ npm i jsonski
 ```
 
 ## Getting Started
+
+### Build and Run
+
+#### Platform
+- **Hardware**: CPUs with `64-bit ALU instructions`, `256-bit SIMD instruction set`, and the `carry-less multiplication instruction (pclmulqdq)`
+- **Operating System**: `Linux`
+- **C++ Compiler**: `g++` (7.4.0 or higher)
+
+#### Build
+  ```
+  make clean
+  make all
+  ```
+#### Run
+Assume executable example file is `example1`.
+  ```
+  cd bin
+  ./example1
+  ```
+### NPM Package (JavaScript Binding)
+- You can also download the npm package from here: https://www.npmjs.com/package/jsonski
+- You can also checkout the npm repository here: https://github.com/AutomataLab/JSONSki_nodejs/tree/master
+
 ### JSONPath
 JSONPath is the basic query language of JSON data. It refers to substructures of JSON data in a similar way as XPath queries are used for XML data. For the details of JSONPath syntax, please refer to [Stefan Goessner's article](https://goessner.net/articles/JsonPath/index.html#e2). 
 
@@ -121,26 +135,6 @@ These APIs advance the current streaming position `pos` to a future position to 
 
 #### API Usage Examples
 A few examples (in `cpp` files) are provided in the `example` folder. They demostrate how to use our APIs to implement JSON queries. To create and test your examples, please update the `makefile` accordingly.
-
-
-### Build and Run
-
-#### Platform
-- **Hardware**: CPUs with `64-bit ALU instructions`, `256-bit SIMD instruction set`, and the `carry-less multiplication instruction (pclmulqdq)`
-- **Operating System**: `Linux`
-- **C++ Compiler**: `g++` (7.4.0 or higher)
-
-#### Build
-  ```
-  make clean
-  make all
-  ```
-#### Run
-Assume executable example file is `example1`.
-  ```
-  cd bin
-  ./example1
-  ```
 
 
 ## Performance Results

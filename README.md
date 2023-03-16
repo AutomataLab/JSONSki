@@ -1,5 +1,4 @@
 [![CircleCI](https://circleci.com/gh/AutomataLab/JSONSki.svg?style=shield&circle-token=daf002fef2464bc57675d6a3dc072485f27b7bbc)](https://app.circleci.com/pipelines/github/AutomataLab/JSONSki)  ![GitHub](https://img.shields.io/github/license/AutomataLab/Jsonski)
-![npm](https://img.shields.io/npm/dt/jsonski?label=npm%20downloads)
 [![Doxygen Documentation](https://img.shields.io/badge/docs-doxygen-green.svg)](https://rawcdn.githack.com/AutomataLab/JSONSki/2277cf784217b2683d5c0229ad33194d63d2da78/html/md_jsonski_c____j_s_o_n_ski__r_e_a_d_m_e.html)
 ![GitHub code size in bytes](https://img.shields.io/github/languages/code-size/AutomataLab/jsonski)
 ![](https://img.shields.io/badge/linux-macos-green)

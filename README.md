@@ -42,8 +42,8 @@ Assume executable example file is `example1`.
   ./example1
   ```
 ### NPM Package (JavaScript Binding)
-- You can also download the npm package from here: https://www.npmjs.com/package/jsonski
-- You can also checkout the npm repository here: https://github.com/AutomataLab/JSONSki_nodejs/tree/master
+- You can download the npm package from here: https://www.npmjs.com/package/jsonski
+- You can checkout the npm repository here: https://github.com/AutomataLab/JSONSki_nodejs/tree/master
 
 ### JSONPath
 JSONPath is the basic query language of JSON data. It refers to substructures of JSON data in a similar way as XPath queries are used for XML data. For the details of JSONPath syntax, please refer to [Stefan Goessner's article](https://goessner.net/articles/JsonPath/index.html#e2). 

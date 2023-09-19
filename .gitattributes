@@ -1,5 +1,9 @@
 *.cpp linguist-detectable=true
 *.js linguist-detectable=false
 *.html linguist-detectable=false
-latex/* linguist-vendored=false
+latex/refman.tex linguist-vendored=false
+latex/doxygen.sty linguist-detectable=false
+latex/tabu_doxygen.sty linguist-detectable=false
+latex/md_jsonski_c____j_s_o_n_ski__r_e_a_d_m_e.tex linguist-detectable=false
+latex/longtable_doxygen.sty linguist-detectable=false
 *.xml linguist-detectable=false

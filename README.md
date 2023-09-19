@@ -1,10 +1,8 @@
 [![CircleCI](https://circleci.com/gh/AutomataLab/JSONSki.svg?style=shield&circle-token=daf002fef2464bc57675d6a3dc072485f27b7bbc)](https://app.circleci.com/pipelines/github/AutomataLab/JSONSki)  ![GitHub](https://img.shields.io/github/license/AutomataLab/Jsonski)
-(https://rawcdn.githack.com/AutomataLab/JSONSki/2277cf784217b2683d5c0229ad33194d63d2da78/html/md_jsonski_c____j_s_o_n_ski__r_e_a_d_m_e.html)
 ![GitHub code size in bytes](https://img.shields.io/github/languages/code-size/AutomataLab/jsonski)
 ![](https://img.shields.io/badge/linux-macos-green)
 
-
-[![Doxygen Documentation](https://img.shields.io/badge/docs-doxygen-green.svg)]
+[![Doxygen Documentation](https://img.shields.io/badge/docs-doxygen-green.svg)](https://rawcdn.githack.com/AutomataLab/JSONSki/2277cf784217b2683d5c0229ad33194d63d2da78/html/md_jsonski_c____j_s_o_n_ski__r_e_a_d_m_e.html)
 
 # JSONSki
 JSONSki is **a streaming JSONPath processor** with **fast-forward** functionality. During the streaming, it can automatically fast-forward over certain JSON substructures that are irrelavent to the query evaluation, without parsing them in detail. To make the fast-forward efficient, JSONSki features a highly bit-parallel solution that intensively utilizes bitwise and SIMD operations that are prevelent on modern CPUs to implement the fast-forward APIs. For more details about JSONSki, please refer to our paper [1].

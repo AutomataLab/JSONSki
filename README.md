@@ -1,4 +1,5 @@
-[![CircleCI](https://circleci.com/gh/AutomataLab/JSONSki.svg?style=shield&circle-token=daf002fef2464bc57675d6a3dc072485f27b7bbc)](https://app.circleci.com/pipelines/github/AutomataLab/JSONSki)  ![GitHub](https://img.shields.io/github/license/AutomataLab/Jsonski)
+[![CircleCI](https://circleci.com/gh/AutomataLab/JSONSki.svg?style=shield&circle-token=daf002fef2464bc57675d6a3dc072485f27b7bbc)](https://app.circleci.com/pipelines/github/AutomataLab/JSONSki) 
+![GitHub](https://img.shields.io/github/license/AutomataLab/Jsonski)
 ![GitHub code size in bytes](https://img.shields.io/github/languages/code-size/AutomataLab/jsonski)
 ![](https://img.shields.io/badge/linux-macos-green)
 

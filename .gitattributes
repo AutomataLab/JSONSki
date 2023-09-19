@@ -1,5 +1,5 @@
 *.cpp linguist-detectable=true
 *.js linguist-detectable=false
 *.html linguist-detectable=false
-*.tex linguist-detectable=false
+Latex/* linguist-vendored
 *.xml linguist-detectable=false

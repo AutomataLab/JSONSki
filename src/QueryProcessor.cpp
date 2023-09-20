@@ -1,4 +1,4 @@
-#include "QueryProcessor.h"
+#include "./lib/QueryProcessor.h"
 #include <immintrin.h>
 #include <emmintrin.h>
 #include <string.h>

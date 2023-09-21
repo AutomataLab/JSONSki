@@ -1,4 +1,4 @@
-#include "JSONPathParser.h"
+#include "./lib/JSONPathParser.h"
 #include <stdlib.h>
 #include <limits.h>
 

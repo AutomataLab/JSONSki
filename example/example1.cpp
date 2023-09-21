@@ -1,5 +1,5 @@
-#include "../src/RecordLoader.h"
-#include "../src/QueryProcessor.h"
+#include "../src/lib/RecordLoader.h"
+#include "../src/lib/QueryProcessor.h"
 
 int main() {
     char* file_path = "../dataset/twitter_sample_large_record.json";

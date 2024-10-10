@@ -142,7 +142,7 @@ A few examples (in `cpp` files) are provided in the `example` folder. They demos
 ## Performance Results
 
 ### Dataset
-Four sample datasets are included in `dataset` folder. Large datasets (used in performance evaluation) can be downloaded from https://drive.google.com/drive/folders/1KQ1DjvIWpHikOg1JgmjlSWM3aAlvq-h7?usp=sharing and placed into the `dataset` folder. 
+Four sample datasets are included in `dataset` folder. Large datasets (used in performance evaluation) can be downloaded from https://drive.google.com/drive/folders/1157Uho73N3b4e2a7ZI7CUx9gpdG_0pmM?usp=drive_link and placed into the `dataset` folder. 
 
 ### Methods Comparison
 We compared JSONSki with [RapidJSON](https://github.com/Tencent/rapidjson), [JPStream](https://github.com/AutomataLab/JPStream), [simdjson](https://github.com/simdjson/simdjson) and [Pison](https://github.com/AutomataLab/Pison) for processing (i) a single bulky JSON record and (ii) a sequence of small JSON records. For non-streaming mdethods (RapidJSON, simdjson, and Pison), we included both the preprocessing time (parsing or indexing) and the querying time. Same datasets from [Pison](https://github.com/AutomataLab/Pison) repository are used in this performance evaluation, including tweets (TT) from Twitter developer API, Best Buy (BB) product dataset, Google Maps Directions (GMD) dataset, National Statistics Post-code Lookup (NSPL) dataset for United Kingdom, Walmart (WM) product dataset, and Wikipedia (WP) entity dataset. Each dataset is a single large JSON record of approximately 1GB. Small records are extracted from the dominating array (a large array consists with sub-records) in each dataset, and are delimited by newlines. For each dataset, we created two JSONPath queries, listed in the following table:
